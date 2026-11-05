@@ -111,7 +111,8 @@ and hatching remain available on the project's full supported Python range.
 The `triangle` package is optional for PySLM overall, but required by block and grid-truss support generation. Install
 it intentionally with ``python -m pip install "PythonSLM[triangulation]"`` from PyPI, or
 ``python -m pip install ".[triangulation]"`` from a source checkout, when a compatible binary or source build is
-available for your platform.
+available for your platform. This extra currently excludes Python 3.14 because the upstream C extension does not
+build on that version; support generation that requires `triangle` is therefore unavailable on Python 3.14.
 
 The `manifold <https://github.com/elalish/manifold>`_ library provides the boolean CSG operations used for intersecting
 meshes between the part model and the support structures.

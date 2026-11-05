@@ -87,7 +87,7 @@ tests = [
     "coverage-badge"
 ]
 triangulation = [
-    "triangle",
+    "triangle; python_version < '3.14'",
 ]
 support = [
     "mapbox-earcut",
