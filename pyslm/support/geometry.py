@@ -14,8 +14,28 @@ from trimesh import grouping
 import shapely.geometry
 
 # Triangulation Libraries
-from mapbox_earcut import triangulate_float32
-from triangle import triangulate
+try:
+    from mapbox_earcut import triangulate_float32
+except Exception:  # pragma: no cover - optional dependency
+    triangulate_float32 = None
+
+try:
+    from triangle import triangulate
+except Exception:  # pragma: no cover - optional dependency
+    triangulate = None
+
+
+def _require_triangulation_backend() -> None:
+    if triangulate is None:
+        raise RuntimeError(
+            "PySLM support triangulation requires the optional 'triangle' package. "
+            'Install it with: python -m pip install "PythonSLM[triangulation]"'
+        )
+    if triangulate_float32 is None:
+        raise RuntimeError(
+            "PySLM support triangulation requires the optional 'mapbox-earcut' package. "
+            "Install it with: pip install mapbox-earcut"
+        )
 
 
 def checkStrutCylinderIntersection(pntA: np.ndarray, pntB: np.ndarray,
@@ -56,7 +76,7 @@ def checkStrutCylinderIntersection(pntA: np.ndarray, pntB: np.ndarray,
 
     if centreOnly:
         # Only perform the ray intersection test between points p1 and p2
-        hitLoc, index_ray, index_tri = mesh.ray.intersects_location(p1, norm, multiple_hits=False)
+        hitLoc, _, _ = mesh.ray.intersects_location(p1, norm, multiple_hits=False)
     else:
         x, y, z = util.generate_basis(norm.ravel())
         tf_mat = np.ones((4, 4))
@@ -65,7 +85,7 @@ def checkStrutCylinderIntersection(pntA: np.ndarray, pntB: np.ndarray,
         verts_3d = tf.transform_points(verts_3d_prev, tf_mat)
 
         norm = np.repeat(norm, numPoints, axis=0)
-        hitLoc, index_ray, index_tri = mesh.ray.intersects_location(verts_3d, norm, multiple_hits=False)
+        hitLoc, _, _ = mesh.ray.intersects_location(verts_3d, norm, multiple_hits=False)
 
     dist2 = 1e12
 
@@ -457,7 +477,8 @@ def triangulateShapelyPolygon(polygon: shapely.geometry.Polygon,
     Ensure that the triangle library is installed using the following command:
 
     .. code-block:: bash
-        pip install triangle
+
+        python -m pip install "PythonSLM[triangulation]"
 
     :param polygon: Shapely polygon object to be triangulated
     :param triangle_args: Passed to triangle.triangulate i.e: '`p`', '`pq30`'
@@ -473,6 +494,7 @@ def triangulateShapelyPolygon(polygon: shapely.geometry.Polygon,
     arg = _polygon_to_kwargs(polygon)
 
     # run the triangulation
+    _require_triangulation_backend()
     result = triangulate(arg, triangle_args)
 
     return result['vertices'], result['triangles']
@@ -485,7 +507,8 @@ def triangulatePolygonFromPaths(exterior: np.ndarray, interiors: List[np.ndarray
     python interface to `triangle.c`
 
     .. code-block:: bash
-        pip install triangle
+
+        python -m pip install "PythonSLM[triangulation]"
 
     :param exterior: Exterior boundaries of polygon
     :param interiors: Interior boundaries of polygon
@@ -502,6 +525,7 @@ def triangulatePolygonFromPaths(exterior: np.ndarray, interiors: List[np.ndarray
     arg = _polygon_to_kwargs2(exterior, interiors)
 
     # run the triangulation
+    _require_triangulation_backend()
     result = triangulate(arg, triangle_args)
 
     return result['vertices'], result['triangles']

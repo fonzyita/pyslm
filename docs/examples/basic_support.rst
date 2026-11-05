@@ -9,9 +9,10 @@ completion of the build. Careful generation is necessary to reduce waste materia
 requirements.
 
 The support generation module in PySLM provides a set of classes and functions to investigate the generation
-on additively manufactured parts, especially those produced in L-PBF processes. The module builds upon several external
-libraries including `vispy`, `manifold3d`, `triangle` and `mapbox-earcut` to provide the capability. It is therefore
-necessary to ensure that these libraries are installed before using the support generation module.
+on additively manufactured parts, especially those produced in L-PBF processes. The module builds upon several
+external libraries, including `vispy`, `manifold3d`, `mapbox-earcut`, and `triangle`, to provide the capability. The
+`triangle` package is optional for PySLM overall but required for block and grid-truss support generation; install it
+separately when the platform provides a compatible build.
 
 Further example usage is shown in `examples/support_generation.py <https://github.com/drlukeparry/pyslm/blob/master/examples/example_support_structure.py>`_.
 
@@ -221,6 +222,7 @@ For control over the exact generation of the grid truss geometry, these can be c
 for the grid :attr:`~pyslm.support.GridBlockSupport.trussWidth` and the :attr:`~pyslm.support.GridBlockSupport.gridSpacing`:
 
 .. code-block:: python
+
     supGen.gridSpacing = [5,5] # [mm] The spacing of the grid
     supGen.trussWidth  = 1.0   # [mm] The width or thickness of the truss itself
 

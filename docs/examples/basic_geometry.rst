@@ -112,8 +112,8 @@ used by the L-PBF system when exported to the machine build files. These are def
 The laser parameters are stored in the :class:`~pyslm.geometry.BuildStyle` object and other machine specific parameters
 can be defined and are stated below for reference:
 
-* :attr:`~pyslm.geometry.BuildStyle.pointExposureTime` - Point Exposure Time [:math:`\mu`s] for Pulsed Laser Systems
-* :attr:`~pyslm.geometry.BuildStyle.pointDistance` - Point Exposure Distance [:math:`\mu`m] for Pulsed Laser Systems
+* :attr:`~pyslm.geometry.BuildStyle.pointExposureTime` - Point Exposure Time [:math:`\mu s`] for Pulsed Laser Systems
+* :attr:`~pyslm.geometry.BuildStyle.pointDistance` - Point Exposure Distance [:math:`\mu m`] for Pulsed Laser Systems
 * :attr:`~pyslm.geometry.BuildStyle.laserFocus` - Laser focus position [mm] for some laser systems
 * :attr:`~pyslm.geometry.BuildStyle.laserId` - Laser ID for multi-laser systems
 * :attr:`~pyslm.geometry.BuildStyle.description` - A description of the build style

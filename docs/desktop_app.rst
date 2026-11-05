@@ -1,0 +1,100 @@
+PySLM Desktop
+=============
+
+The repository includes an initial desktop application for preparing a single
+STL part with PySLM. This first version supports STL import, interactive 3D
+viewing, XYZ orientation, overhang visualization, PySLM block and grid-truss
+support generation, comparison of 24 distinct orthogonal build orientations,
+and STL export of the oriented part, supports, or their combined mesh.
+
+Install the desktop and support-generation dependencies from the repository
+root with Python 3.14, then launch the application:
+
+.. code-block:: console
+
+   py -3.14 -m pip install -e ".[desktop,triangulation]"
+   pyslm-desktop
+
+The ``triangulation`` extra is needed for block and grid-truss support
+generation. If you only need STL viewing and mesh analysis, install
+``.[desktop]`` instead.
+
+STL files do not encode physical units. The application treats input coordinates
+as millimetres. The displayed mass is an estimate based on the entered density
+(default: 7.85 g/cm³) and is shown only when PySLM can calculate a valid volume
+for the mesh. Set a density appropriate to the actual alloy before relying on
+the estimate.
+
+The support panel offers the block and grid-truss generators implemented by
+:class:`pyslm.support.BlockSupportGenerator` and
+:class:`pyslm.support.GridBlockSupportGenerator`. Grid-only parameters are
+disabled when block support is selected. Generated geometry is produced by
+PySLM's support-region ``geometry()`` methods. Support generation depends on
+the optional OpenGL and boolean-geometry dependencies installed by the
+``desktop`` extra. PySLM errors are reported in the application's diagnostics
+panel and do not terminate the window. Block and grid-truss generation also
+requires the optional ``triangle`` backend from the ``triangulation`` extra.
+Individual generated regions can be
+removed from the support list; subsequent support and assembly exports use
+only the remaining regions. The last removal can be undone; changing the part
+or support settings clears the removed-region history. Selecting a generated
+region highlights it in the viewer; this helps inspect regions before removal
+but does not alter PySLM's generated geometry.
+
+Orientation ranking uses PySLM's ``approximateSupportMomentArea`` estimate and
+uses projected overhang area and build height to break ties. PySLM documents
+this metric as an initial estimate; it does not account for support
+self-intersections. Compare candidates with actual generated supports before
+selecting a production orientation.
+
+On Windows, if ``pip`` needs to build the optional ``triangle`` triangulation
+backend from source, Microsoft C++ Build Tools (MSVC 14 or newer) may be
+required. PySLM is now certified for Python 3.14 in the project metadata and
+CI matrix, while retaining compatibility with its existing Python 3.8+ floor.
+
+On a desktop with a working OpenGL context, the real support-generation
+integration test can be run with:
+
+.. code-block:: console
+
+   set PYSLM_RUN_SUPPORT_INTEGRATION=1
+   py -3.14 -m pytest tests/test_desktop_services.py -q
+
+The combined STL export concatenates the part and the PySLM support meshes; it
+does not perform an additional Boolean union or mesh repair. Validate exported
+files in the target manufacturing workflow before production use.
+
+This is an initial workflow, not a complete build-preparation system. It does
+not automatically apply an orientation or allow manual reshaping of support
+geometry.
+
+The geometry diagnostics report mesh closure, face winding, volume validity,
+connected components, Euler number, and degenerate faces. A "cavity candidate"
+is reported only for a closed inward-oriented mesh shell nested inside a larger
+closed outward-oriented shell. This topological indicator is not a general
+cavity detector.
+
+The separate voxel screen transforms the original diagnostic STL using the
+current PySLM part transform and samples the result at the selected pitch. It
+reports free-space components that are not face-connected to the sampled
+exterior. Their volumes and build-coordinate bounds are estimates at that
+resolution. Narrow
+openings can be missed, so an accessible cavity may be reported as isolated;
+an optional spherical probe additionally screens for sampled center positions
+with enough estimated clearance to pass. Components of this probe-center space
+that are not connected to the sampled exterior are reported separately; their
+volume is not the physical cavity volume. The clearance calculation is
+conservative and voxel-based, with face-connected paths only. Neither screen
+assesses support entrapment, accounts for build orientation or gravity, models
+powder particles or their flow, or verifies powder evacuation. An empty result
+is not proof that the part is evacuable. Review the geometry and validate
+powder removal using the actual process and part orientation.
+
+When internal void candidates are found, the application also displays a
+marching-cubes surface of the sampled void voxels over a translucent part.
+This is a visualization of the resolution-limited screen, not an exact CAD
+cavity surface. The optional probe-disconnected center-space is overlaid in a
+separate color to distinguish it from the full void candidate. Loading a new
+part, changing its orientation, or editing the voxel pitch or probe diameter
+clears the overlays; run the screen again to visualize the current settings
+and pose.

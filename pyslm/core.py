@@ -14,7 +14,7 @@ import shapely.geometry
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from scipy.spatial.qhull import ConvexHull
+from scipy.spatial import ConvexHull
 
 from .hatching import utils as hatchUtils
 
@@ -522,7 +522,7 @@ class Part(DocumentObject):
             return None
 
         # Obtain the 2D Planar Section at this Z-position
-        planarSection, transform = sections.to_planar(transformMat)
+        planarSection, _ = sections.to_2D(transformMat)
 
         if not planarSection.is_closed:
             # Needed in case there are any holes in the stl mesh

@@ -212,6 +212,6 @@ transformMat = np.array(([1.0, 0.0, 0.0, 0.0],
                          [0.0, 0.0, 1.0, 0.0],
                          [0.0, 0.0, 0.0, 1.0]), dtype=np.float32)
 
-planarSection, transform = sections.to_planar(transformMat, normal=[1,0,0])
+planarSection, transform = sections.to_2D(transformMat, normal=[1, 0, 0])
 sections.show()
 

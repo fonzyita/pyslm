@@ -1,7 +1,13 @@
 import numpy as np
 import trimesh
-from vispy import app, gloo
-from vispy.util.transforms import translate, rotate, ortho
+
+try:
+    from vispy import app, gloo
+    from vispy.util.transforms import translate, rotate, ortho
+except Exception:  # pragma: no cover - optional dependency
+    app = None
+    gloo = None
+    translate = rotate = ortho = None
 
 import matplotlib.pyplot as plt
 #app.use_app('pyside6')  # Set backend
@@ -35,148 +41,130 @@ void main()
 """
 
 
-class Canvas(app.Canvas):
+if app is not None:
+    class Canvas(app.Canvas):
+        @property
+        def resolution(self):
+            return self._resolution
 
-    @property
-    def resolution(self):
-        return self._resolution
+        @resolution.setter
+        def resolution(self, res: float):
+            self._resolution = res
 
-    @resolution.setter
-    def resolution(self, res: float):
-        self._resolution = res
+        @property
+        def visSize(self):
+            return self._visSize
 
-    @property
-    def visSize(self):
-        return self._visSize
+        @property
+        def mesh(self) -> trimesh.Trimesh:
+            return self._mesh
 
-    @property
-    def mesh(self) -> trimesh.Trimesh:
-        return self._mesh
+        @property
+        def bbox(self) -> np.ndarray:
+            return self._bbox
 
-    @property
-    def bbox(self) -> np.ndarray:
-        return self._bbox
+        def setMesh(self, mesh: trimesh.Trimesh):
+            self.vertices = np.copy(mesh.vertices).astype(np.float32)
+            self.filled = np.copy(mesh.faces).astype(np.int32)
+            self.verticesColor = np.copy(mesh.vertices).astype(np.float32)
 
-    def setMesh(self, mesh: trimesh.Trimesh):
+            self._bbox = mesh.bounds
+            self._mesh = mesh
 
-        self.vertices = np.copy(mesh.vertices).astype(np.float32)
-        self.filled = np.copy(mesh.faces).astype(np.int32)
-        self.verticesColor = np.copy(mesh.vertices).astype(np.float32)
+        def __enter__(self):
+            self._backend._vispy_warmup()
+            return self
 
-        self._bbox = mesh.bounds
-        self._mesh = mesh
+        def __init__(self, mesh: trimesh.Trimesh = None, rasterResolution: float = 0.05, flipDir=False, bbox=None):
+            self.flipDir = flipDir
+            self.rgb = None
+            self.vertices = None
+            self.filled = None
+            self.verticesColor = None
+            self._resolution = rasterResolution
+            self._mesh = None
+            self._bbox = None
 
-    def __enter__(self):
-        self._backend._vispy_warmup()
-        return self
+            if mesh:
+                self.setMesh(mesh)
 
-    def __init__(self, mesh: trimesh.Trimesh = None, rasterResolution: float = 0.05, flipDir = False, bbox = None):
+            if bbox is not None:
+                self._bbox = bbox
 
-        self.flipDir = flipDir
-        self.rgb = None
-        self.vertices = None
-        self.filled = None
-        self.verticesColor = None
-        self._resolution = rasterResolution
-        self._mesh = None
-        self._bbox = None
+            meshExtents = np.diff(self.bbox, axis=0)
+            self._visSize = (meshExtents / self.resolution).flatten()
 
-        if mesh:
-            self.setMesh(mesh)
+            app.Canvas.__init__(self, 'interactive', show=False, resizable=True, autoswap=False, decorate=False,
+                                size=(self.visSize[0], self.visSize[1]))
 
-        if bbox is not None:
-            self._bbox = bbox
+            self.filled = self.filled.astype(np.uint32).flatten()
+            self.filled_buf = gloo.IndexBuffer(self.filled)
 
-        meshExtents = np.diff(self.bbox, axis=0)
+            vertex_data = np.zeros(self.vertices.shape[0], dtype=[('a_position', np.float32, 3),
+                                                                  ('a_color', np.float32, 3)])
 
-        self._visSize = (meshExtents / self.resolution).flatten()
+            vertex_data['a_position'] = self.vertices.astype(np.float32)
+            vertex_data['a_color'] = self.vertices.astype(np.float32)
 
-        app.Canvas.__init__(self, 'interactive', show=False, resizable=True, autoswap=False, decorate=False,
-                            size=(self.visSize[0], self.visSize[1]))
+            self.program = gloo.Program(vert, frag)
+            self.program.bind(gloo.VertexBuffer(vertex_data))
 
-        #print('size', self._visSize)
-        #print('dpi', self.dpi)
+            avg = np.mean(self.bbox, axis=0)
 
-        self.filled = self.filled.astype(np.uint32).flatten()
-        self.filled_buf = gloo.IndexBuffer(self.filled)
+            if flipDir:
+                self.view = rotate(0, [1, 0, 0])
+            else:
+                self.view = np.dot(np.dot(translate((-avg[0], -avg[1], -avg[2])),
+                                  rotate(-180, [1, 0, 0])),
+                                  translate((avg[0], avg[1], avg[2])))
 
-        vertex_data = np.zeros(self.vertices.shape[0], dtype=[('a_position', np.float32, 3),
-                                                              ('a_color', np.float32, 3)])
+            self.model = np.eye(4, dtype=np.float32)
+            shape = int(self._visSize[1]), int(self._visSize[0])
 
-        vertex_data['a_position'] = self.vertices.astype(np.float32)
-        vertex_data['a_color'] = self.vertices.astype(np.float32)
+            self._rendertex = gloo.Texture2D((shape + (4,)), format='rgba', internalformat='rgba32f')
+            self._depthRenderBuffer = gloo.RenderBuffer(shape, format='depth')
+            self._fbo = gloo.FrameBuffer(self._rendertex, self._depthRenderBuffer)
 
-        self.program = gloo.Program(vert, frag)
-        self.program.bind(gloo.VertexBuffer(vertex_data))
-
-        avg = np.mean(self.bbox, axis=0)
-
-        if flipDir:
-            self.view = rotate(0, [1, 0, 0])
-        else:
-            self.view = np.dot(np.dot(translate((-avg[0], -avg[1], -avg[2])),
-                              rotate(-180, [1,0,0])),
-                              translate((avg[0], avg[1], avg[2])))
-
-
-        self.model = np.eye(4, dtype=np.float32)
-        shape = int(self._visSize[1]), int(self._visSize[0])
-
-        # Create the render texture
-        self._rendertex = gloo.Texture2D((shape + (4,)), format='rgba', internalformat='rgba32f')
-        # self._colorBuffer = gloo.RenderBuffer(self.shape, format='color')
-        self._depthRenderBuffer = gloo.RenderBuffer(shape, format='depth')
-        #self._depthRenderBuffer.resize(shape, format=gloo.gl.GL_DEPTH_COMPONENT16)
-
-        # Create FBO, attach the color buffer and depth buffer
-        self._fbo = gloo.FrameBuffer(self._rendertex, self._depthRenderBuffer)
-
-        gloo.set_viewport(0, 0, self.physical_size[0], self.physical_size[1])
-        gloo.set_viewport(0, 0, self._visSize[0], self._visSize[1])
-        self.projection = ortho(self.bbox[1, 0], self.bbox[0, 0], self.bbox[1, 1], self.bbox[0, 1], 2, 40)
-
-        # Set MVP variables for shaders
-        self.program['u_projection'] = self.projection
-        self.program['u_model'] = self.model
-        self.program['u_view'] = self.view
-
-        gloo.set_clear_color((0.0, 0.0, 0.0, 0.0))
-        gloo.set_state('opaque')
-
-        self.update()
-
-    def on_resize(self, event):
-
-        # TODO - find a better way to set the bounds for the orthographic projection
-
-        gloo.set_viewport(0, 0, self._visSize[0]*2, self._visSize[1]*2)
-        self.finalSize = (event.physical_size[0], event.physical_size[1])
-        #print('event physical size', event.physical_size[0], event.physical_size[1])
-        # Zself.projection = ortho(self.box[0, 0], self.box[1, 0], self.box[0, 1], self.box[1, 1], -10, 40)
-        self.projection = ortho(self.bbox[1, 0], self.bbox[0, 0],
-                                self.bbox[1, 1], self.bbox[0, 1],
-                                -self.bbox[1, 2], self.bbox[0, 2])
-
-        self.projection = ortho(self.bbox[0, 0], self.bbox[1, 0],
-                                self.bbox[0, 1], self.bbox[1, 1],
-                                -1e4,  1e4)
-
-        self.program['u_projection'] = self.projection
-
-    def on_draw(self, event):
-
-        with self._fbo:
-            gloo.clear()
-            gloo.set_clear_color((0.0, 0.0, 0.0, 0.0))
-
-            gloo.set_viewport(0, 0, *self.finalSize)
+            gloo.set_viewport(0, 0, self.physical_size[0], self.physical_size[1])
             gloo.set_viewport(0, 0, self._visSize[0], self._visSize[1])
-            gloo.set_state(blend=True, depth_test=True, polygon_offset_fill=False, cull_face=False)
+            self.projection = ortho(self.bbox[1, 0], self.bbox[0, 0], self.bbox[1, 1], self.bbox[0, 1], 2, 40)
 
-            self.program.draw('triangles', self.filled_buf)
-            # self.rgb = np.copy(self._fbo.read('color')) #_screenshot((0, 0, self.size[0], self.size[1]))  #self._fbo.read('color')
-            self.rgb = gloo.read_pixels((0, 0, self._visSize[0], self._visSize[1]), True, out_type='float')
-            #self.rgb = _screenshot((0, 0, *self.physical_size))
+            self.program['u_projection'] = self.projection
+            self.program['u_model'] = self.model
+            self.program['u_view'] = self.view
+
+            gloo.set_clear_color((0.0, 0.0, 0.0, 0.0))
+            gloo.set_state('opaque')
+
+            self.update()
+
+        def on_resize(self, event):
+            gloo.set_viewport(0, 0, self._visSize[0] * 2, self._visSize[1] * 2)
+            self.finalSize = (event.physical_size[0], event.physical_size[1])
+            self.projection = ortho(self.bbox[1, 0], self.bbox[0, 0],
+                                    self.bbox[1, 1], self.bbox[0, 1],
+                                    -self.bbox[1, 2], self.bbox[0, 2])
+            self.projection = ortho(self.bbox[0, 0], self.bbox[1, 0],
+                                    self.bbox[0, 1], self.bbox[1, 1],
+                                    -1e4, 1e4)
+            self.program['u_projection'] = self.projection
+
+        def on_draw(self, event):
+            with self._fbo:
+                gloo.clear()
+                gloo.set_clear_color((0.0, 0.0, 0.0, 0.0))
+                gloo.set_viewport(0, 0, *self.finalSize)
+                gloo.set_viewport(0, 0, self._visSize[0], self._visSize[1])
+                gloo.set_state(blend=True, depth_test=True, polygon_offset_fill=False, cull_face=False)
+                self.program.draw('triangles', self.filled_buf)
+                self.rgb = gloo.read_pixels((0, 0, self._visSize[0], self._visSize[1]), True, out_type='float')
+else:
+    class Canvas:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "PySLM height-map rendering requires the optional 'vispy' package. "
+                "Install it with: pip install vispy"
+            )
 
 
 def projectHeightMap(mesh: trimesh.Trimesh,
@@ -190,8 +178,8 @@ def projectHeightMap(mesh: trimesh.Trimesh,
     c.close()
 
     if c.rgb is None:
-        pass
-        #mesh.show()
-        #raise Exception()
-    else:
-        return c.rgb[:, :, 1]
+        raise RuntimeError(
+            "PySLM could not render the support height map. Check that a working "
+            "OpenGL context is available and that the mesh has non-zero extents."
+        )
+    return c.rgb[:, :, 1]

@@ -315,7 +315,7 @@ class Iterator:
 
         return time
 
-    def getLayerGeometryNodeByTime(self, time: float) -> Union[None, TimeNode]:
+    def getLayerGeometryNodeByTime(self, time: float) -> Union[TimeNode, None]:
         """
         Gets the :class:`TimeNode` for a :class:`~pyslm.geometry.LayerGeometry` given a time.
 

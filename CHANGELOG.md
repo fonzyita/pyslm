@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Add `pyslm.hatching.utils.getContoursFromShapelyPolygon` [1374dd5373abf4232a91563cdafeb0222e2616d8](https://github.com/drlukeparry/pyslm/commit/1374dd5373abf4232a91563cdafeb0222e2616d8)
 - Pytest Unit Testing Framework [7f5ebceecd27095f478d7fd2d178a55952236c35](https://github.com/drlukeparry/pyslm/commit/7f5ebceecd27095f478d7fd2d178a55952236c35)
+- Added a dedicated `triangulation` extra for the optional `triangle` backend.
+- Added Python 3.8 to CI and made built-in generic annotations safe to evaluate on the declared minimum runtime.
 
 ### Fixed
 - Formatting and Linting via Ruff and mypy [c58c38d6cbcad23cc18503d00fc760a7a9c1cbd4](https://github.com/drlukeparry/pyslm/commit/c58c38d6cbcad23cc18503d00fc760a7a9c1cbd4)
@@ -15,8 +17,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Change build script to use `pyproject.toml` for building PySLM wheels using hatchling (#58) - [cbd78b7950633c5b29db3efe5a246a49d413b280](https://github.com/drlukeparry/pyslm/commit/cbd78b7950633c5b29db3efe5a246a49d413b280)
 - Updated build project dependency requirements to use specific version of numpy, trimesh, shapely [98f758f9488c47969afd124eb2faa7348368e6f3](https://github.com/drlukeparry/pyslm/commit/98f758f9488c47969afd124eb2faa7348368e6f3)
-- Minimum version of Python is now 3.9, because 3.8 is now considered unmaintained 
 - Removal of `setup.py` [7c39ad8c0ac608ccffcd28a4524409b5942fd31e](https://github.com/drlukeparry/pyslm/commit/7c39ad8c0ac608ccffcd28a4524409b5942fd31e)
+- Added Python 3.14 support and refreshed compatibility checks for current NumPy/SciPy/Trimesh APIs while keeping the existing Python 3.8+ floor intact.
+- Hardened optional support-module imports so desktop/rendering and triangulation dependencies are only required when the relevant functionality is used.
 
 ## [0.6.0] - 2024-07-07
 
@@ -47,8 +50,8 @@ All notable changes to this project will be documented in this file.
 - Invalid projection of extruded prismatic mesh in `support.GridBlockSupportGenerator.identifySupportMethods`. Generated mesh
   is not automatically processed by Trimesh prior to extrusion to prevent mismatch between vertices. [df2dd41e0b04160a7ed4c96f8f7c0aed71003430](https://github.com/drlukeparry/pyslm/commit/df2dd41e0b04160a7ed4c96f8f7c0aed71003430)
 - Fixed the `pyslm.support` module to use manifold3D library instead of pycork  [df2dd41e0b04160a7ed4c96f8f7c0aed71003430](https://github.com/drlukeparry/pyslm/commit/df2dd41e0b04160a7ed4c96f8f7c0aed71003430)
-- Updated to Trimesh version 4.0 [081dede9a14357fe9fb706470a5d42e698b763a6](https://github.com/drlukeparry/pyslm/commit/081dede9a14357fe9fb706470a5d42e698b763a6)
-- Update to Shapely Library version 2.0 [081dede9a14357fe9fb706470a5d42e698b763a6](https://github.com/drlukeparry/pyslm/commit/081dede9a14357fe9fb706470a5d42e698b763a6)
+- Updated to Trimesh version 4.0 [commit](https://github.com/drlukeparry/pyslm/commit/081dede9a14357fe9fb706470a5d42e698b763a6)
+- Update to Shapely Library version 2.0 [same commit](https://github.com/drlukeparry/pyslm/commit/081dede9a14357fe9fb706470a5d42e698b763a6)
 - Fixes for IslandHatcher when processing empty regions  [f9ff55ecc2709c3514b1d14f815cb2620856be97](https://github.com/drlukeparry/pyslm/commit/f9ff55ecc2709c3514b1d14f815cb2620856be97)
 - `pyslm.visualise.plot` will now plot point geometries when included [ddb7f27f6c18b6d494870e5823dbede7987e2e12](https://github.com/drlukeparry/pyslm/commit/ddb7f27f6c18b6d494870e5823dbede7987e2e12)
 - In `pyslm.visaulise.plot`, the method will correctly plot `shapely.geometry.MultiPolygon` after the update to Shapely 2.0 [99c7a475e10b9c138e061f56aa28f7780f2a5eac](https://github.com/drlukeparry/pyslm/commit/99c7a475e10b9c138e061f56aa28f7780f2a5eac)
@@ -217,4 +220,3 @@ Development branch of PySLM with new features.
 
   The first release of PySLM in its distributed packaged form via PyPi. This release includes basic slicing and
   hatching using a custom version of PyClipper built internally using setuptools.
-

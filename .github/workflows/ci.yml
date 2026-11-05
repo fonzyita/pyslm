@@ -20,11 +20,11 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
-        python-version: 3.12
+        python-version: '3.12'
     - name: Install dependencies
       run: |
           python -m pip install --upgrade pip
@@ -39,11 +39,11 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
-        python-version: 3.12
+        python-version: '3.12'
     - name: Install libspatial, pyclipr dependencies
       run: |
         sudo apt-get update -y -qq
@@ -51,11 +51,11 @@ jobs:
     - name: Install dev dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -U -e .[docs]
+        pip install -U -e '.[docs]'
     - name: Build docs
       run: |
         cd docs
-        sphinx-build --builder html . out
+        sphinx-build --builder html -W --keep-going . out
   test-builds:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -63,6 +63,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: Test py38
+            os: ubuntu-latest
+            pyversion: '3.8'
           - name: Test py39
             os: ubuntu-latest
             pyversion: '3.9'
@@ -78,10 +81,13 @@ jobs:
           - name: Test py313
             os: ubuntu-latest
             pyversion: '3.13'
+          - name: Test py314
+            os: ubuntu-latest
+            pyversion: '3.14'
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python ${{ matrix.pyversion }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.pyversion }}
     - name: Install libspatial and pyclipr dependencies
@@ -92,9 +98,7 @@ jobs:
     - name: Install package and dev dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install .
-        pip install .[tests]
-        pip install .[support]
+        pip install '.[tests,support,triangulation]'
         rm -r pyslm
     - name: Unit tests with pytest
       run: |
@@ -105,11 +109,11 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
-        python-version: 3.12
+        python-version: '3.12'
     - name: Install libspatial and pyclipr dependencies
       run: |
         sudo apt-get update -y -qq
@@ -117,12 +121,11 @@ jobs:
     - name: Install package and dev dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install .
-        pip install .[tests]
-        pip install .[support]
+        pip install '.[tests,support,triangulation]'
         rm -r pyslm
     - name: Run Pytest coverage
       run: |
+        set -o pipefail
         pytest --junitxml=pytest.xml --cov-report=term-missing:skip-covered --cov=pyslm tests/ | tee pytest-coverage.txt
     - name: Pytest coverage comment
       uses: MishaKav/pytest-coverage-comment@main
@@ -142,11 +145,11 @@ jobs:
           - os: ubuntu-latest
             pyversion: '3.12'
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
-        python-version: 3.12
+        python-version: ${{ matrix.pyversion }}
     - name: Install libspatial and pyclipr dependencies
       run: |
         sudo apt-get update -y -qq
@@ -154,7 +157,10 @@ jobs:
     - name: Install dev dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e .[examples]
+        pip install -e .
+    - name: Compile example scripts
+      run: |
+        python -m compileall -q examples
     - name: Show pyslm version
       run: |
         python -c "import pyslm; print(pyslm.__version__)"
@@ -165,11 +171,11 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: 3.12
+          python-version: '3.12'
       - name: Install Hatch
         uses: pypa/hatch@install
       - name: Install libspatial and pyclipr dependencies
@@ -189,19 +195,15 @@ jobs:
       - name: Test sdist
         shell: bash
         run: |
-          rm -rf ./pyslm
           pushd $HOME
-          pip install $GITHUB_WORKSPACE/dist/*.tar.gz
+          pip install "$GITHUB_WORKSPACE"/dist/*.tar.gz
           python -c "import pyslm; print(pyslm.__version__)"
           popd
-          # don't run tests, we just want to know if the sdist can be installed
-          pip uninstall -y pyslm
-          git reset --hard HEAD
       - name: Twine check
         run: |
           twine check dist/*
       - name: Upload distributions
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           path: dist
           name: dist

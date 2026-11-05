@@ -26,6 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
@@ -65,7 +66,6 @@ docs = [
     "pypandoc",
     "sphinx_rtd_theme",
     "furo",
-    "triangle",
     "trimesh",
     "vispy",
     "PyQt5"
@@ -75,7 +75,6 @@ easy = [
     "scikit-image",
     "setuptools",
     "shapely",
-    "triangle",
     "trimesh",
 ]
 tests = [
@@ -83,14 +82,24 @@ tests = [
     "pytest-cov",
     "coverage-badge"
 ]
+triangulation = [
+    "triangle",
+]
 support = [
     "mapbox-earcut",
     "manifold3d",
     "PyQt5",
     "setuptools",
     "shapely",
-    "triangle",
     "trimesh",
+    "vispy",
+]
+desktop = [
+    "mapbox-earcut",
+    "manifold3d",
+    "PyOpenGL",
+    "PyQt5",
+    "pyqtgraph<0.14",
     "vispy",
 ]
 build = ["build", "hatchling", "requests", "twine"]
@@ -103,6 +112,9 @@ Homepage = "https://github.com/drlukeparry/pyslm"
 Source = "https://github.com/drylukeparry/pyslm/pyslm/"
 Tracker = "https://github.com/drlukeparry/pyslm/issues"
 
+[project.scripts]
+pyslm-desktop = "pyslm_app.main:main"
+
 [build-system]
 requires = ["requests", "hatchling"]
 build-backend = "hatchling.build"
@@ -113,6 +125,8 @@ path = "pyslm/version.py"
 [tool.hatch.build.targets.sdist]
 include = [
     "pyslm",
+    "pyslm_app",
+    "models",
     "tests",
     "examples",
 ]
@@ -120,6 +134,7 @@ include = [
 [tool.hatch.build.targets.wheel]
 include = [
     "pyslm",
+    "pyslm_app",
     "models",
     "examples"
 
@@ -128,6 +143,9 @@ include = [
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -q"
+filterwarnings = [
+    "ignore:Setting the shape on a NumPy array has been deprecated.*:DeprecationWarning:skimage\\.measure\\._marching_cubes_lewiner",
+]
 testpaths = [
     "tests"
 ]

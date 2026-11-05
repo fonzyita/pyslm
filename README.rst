@@ -141,17 +141,25 @@ can be installed via PyPi and/or Anaconda distribution.
 
 .. code:: bash
 
-    conda install -c conda-forge shapely, Rtree, networkx, scikit-image
+    conda install -c conda-forge shapely rtree networkx scikit-image
     conda install trimesh
 
-If you are interested using the support generation module, there are additional dependencies that
-are required to be installed. These are not required for the core functionality of PySLM such as slicing and hatching.
-These require a working OpenGL environment to work via `vispy <https://vispy.org>`_ - the PyQt5 module provides the
-OpenGL backend for this currently, which is currently supported across all major platforms.
+If you are interested in the support generation module, install the optional support dependencies. These are not
+required for the core functionality of PySLM such as slicing and hatching. A working OpenGL environment is needed via
+`vispy <https://vispy.org>`_ - the PyQt5 module provides the OpenGL backend for this currently, which is supported across
+all major platforms.
 
 .. code:: bash
 
-    pip install vispy pyqt5 triangle pyclipr manifold3d mapbox-earcut
+    pip install vispy pyqt5 pyclipr manifold3d mapbox-earcut
+
+The `triangle` package is optional for PySLM overall, but is required for block and grid-truss support generation.
+Install it with the desktop dependencies when using those features, for example on platforms where a binary wheel is
+available:
+
+.. code:: bash
+
+    pip install .[triangulation]
 
 Installation of PySLM can be performed using pre-built python packages using the PyPi repository. Additionally to
 interface with commercial L-PBF systems, the user can choose to install libSLM. Note, the user should contact the author

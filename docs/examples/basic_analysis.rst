@@ -99,6 +99,7 @@ and geometries specified, the iterator will process the structure and calculate 
 
 
 .. code-block:: python
+
     # Analyse the last layer of the build
     scanIter = pyslm.analysis.ScanIterator([model], layers[-1])
 
@@ -130,6 +131,7 @@ may be collected incrementally using pythonic notation. Ensure that the scan-ite
 based on the :attr:`~pyslm.analysis.ScanIterator.timestep` set to a suitably small value, based on the minimum scan-speed.
 
 .. code-block:: python
+
     # Generate a list of point exposures - note the 3rd column is the current time
     ab = np.array([point for point in scanIter])
 
@@ -183,4 +185,3 @@ useful for collecting and gather information about the current state of the lase
 
     islaserOn = scanIter.isLaserOn()
     bstyle = scanIter.getCurrentBuildStyle()
-

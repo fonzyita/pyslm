@@ -31,6 +31,7 @@ Links
    examples/basic_visualisation
    examples/basic_support
    examples/basic_analysis
+   desktop_app
 
 .. toctree::
    :caption: Modules
@@ -38,8 +39,6 @@ Links
 
    modules
 
-==================
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-

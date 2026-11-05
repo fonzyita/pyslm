@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 from typing import List, Union
 
@@ -273,7 +275,7 @@ class BaseHatcher(abc.ABC):
         return bbox
 
     @staticmethod
-    def clipLines(paths: list[np.ndarray], lines: np.ndarray) -> np.ndarray:
+    def clipLines(paths: List[np.ndarray], lines: np.ndarray) -> np.ndarray:
         """
         This function clips a series of lines (hatches) across a closed set of polygons using
         `Pyclipr <https://pypi.org/project/pyclipr/>`_.

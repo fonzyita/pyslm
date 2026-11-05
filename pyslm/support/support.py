@@ -2,20 +2,22 @@
 Provides classes  and methods for the creation of support structures in Additive Manufacturing.
 """
 
+from __future__ import annotations
+
 try:
     import triangle
-except Exception:
-    raise Exception("Lib Triangle is required to use support.geometry submodule")
+except Exception:  # pragma: no cover - optional dependency
+    triangle = None
 
 try:
     import mapbox_earcut
-except Exception:
-    raise Exception("Mapbox earcut is required to use the support.geometry submodule")
+except Exception:  # pragma: no cover - optional dependency
+    mapbox_earcut = None
 
 try:
     import vispy
-except Exception:
-    raise Exception("Vispy is required to use the support.geometry submodule")
+except Exception:  # pragma: no cover - optional dependency
+    vispy = None
 
 import abc
 
@@ -24,7 +26,7 @@ import logging
 import time
 import warnings
 
-import scipy.ndimage.filters
+from scipy.ndimage import gaussian_filter
 import skimage.measure
 
 import shapely.geometry
@@ -94,7 +96,7 @@ class SupportStructure(abc.ABC):
         """ Convert the line to a 2D polygon"""
         poly.vertices[:, 2] = 0.0
 
-        flattenPath, polygonTransform = poly.to_planar()
+        flattenPath, polygonTransform = poly.to_2D()
         flattenPath.process()
 
         flattenPath.apply_translation(polygonTransform[:2, 3])  # np.array([polygonTransform[0, 3],
@@ -241,7 +243,7 @@ class BlockSupportBase(SupportStructure):
         return blockSupportSides
 
     @staticmethod
-    def triangulateSections(sections: list[trimesh.path.Path2D]) -> trimesh.Trimesh:
+    def triangulateSections(sections: List[trimesh.path.Path2D]) -> trimesh.Trimesh:
         """
         A static method to take a collection of section slice or cross-section and triangulate them into a combined
         mesh. The triangulated meshed are then transformed based on the original transformation generated internally
@@ -674,7 +676,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
         rays = np.repeat([[0., 0., 1.]], coords.shape[0], axis=0)
 
         # Find the first location of any triangles which intersect with the part
-        hitLoc, index_ray, index_tri = subregion.ray.intersects_location(ray_origins=coords,
+        hitLoc, index_ray, _ = subregion.ray.intersects_location(ray_origins=coords,
                                                                          ray_directions=rays,
                                                                          multiple_hits=False)
         logging.info('\t - finished projecting rays')
@@ -686,7 +688,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
 
         # If any vertices in triangle there is an intersection
         # Find the first location of any triangles which intersect with the part
-        hitLoc2, index_ray2, index_tri2 = cutMesh.ray.intersects_location(ray_origins=coords2,
+        hitLoc2, _, _ = cutMesh.ray.intersects_location(ray_origins=coords2,
                                                                           ray_directions=rays,
                                                                           multiple_hits=False)
 
@@ -864,7 +866,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
 
             logging.info('\t - start generated support height map')
 
-            heightMap, heightMapUpper, heightMapLower = self._identifySelfIntersectionHeightMap(subregionCpy, offsetPoly, cutMeshUpperCpy, bbox)
+            heightMap, heightMapUpper, _ = self._identifySelfIntersectionHeightMap(subregionCpy, offsetPoly, cutMeshUpperCpy, bbox)
 
 
             logging.info('\t - finished generated support height map')
@@ -875,7 +877,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
             vx, vy = np.gradient(heightMap)
             grads = np.sqrt(vx ** 2 + vy ** 2)
 
-            grads = scipy.ndimage.filters.gaussian_filter(grads, sigma=BlockSupportGenerator._gaussian_blur_sigma)
+            grads = gaussian_filter(grads, sigma=BlockSupportGenerator._gaussian_blur_sigma)
 
             """
             Find the outlines of any regions of the height map which deviate significantly
@@ -950,7 +952,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
                 ray_dir = np.repeat([[0., 0., 1.]], coords.shape[0], axis=0)
 
                 # Find the first location of any triangles which intersect with the part
-                hitLoc, index_ray, index_tri = subregion.ray.intersects_location(ray_origins=coords,
+                hitLoc, index_ray, _ = subregion.ray.intersects_location(ray_origins=coords,
                                                                                  ray_directions=ray_dir,
                                                                                  multiple_hits=False)
 
@@ -968,7 +970,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
 
                 if cutMesh.volume > BlockSupportGenerator._intersectionVolumeTolerance:
 
-                    hitLoc2, index_ray2, index_tri2 = cutMeshUpper.ray.intersects_location(ray_origins=coords2,
+                    hitLoc2, index_ray2, _ = cutMeshUpper.ray.intersects_location(ray_origins=coords2,
                                                                                            ray_directions=ray_dir,
                                                                                            multiple_hits=False)
                 else:

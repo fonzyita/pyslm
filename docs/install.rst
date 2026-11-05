@@ -49,7 +49,7 @@ the library for loading and manipulating and working with popular mesh formats.
 
 .. code:: bash
 
-    conda install -c conda-forge shapely, Rtree, networkx, scikit-image, cython, trimesh
+    conda install -c conda-forge shapely rtree networkx scikit-image cython trimesh
     conda install trimesh
     
 Alternatively, the more common approach is using PyPi to install the dependencies.
@@ -61,7 +61,7 @@ and should only be installed using *PythonSLM* package only.
 
 .. code:: bash
 
-    pip install shapely, Rtree, networkx, scikit-image, pyclipr
+    pip install shapely Rtree networkx scikit-image pyclipr
     pip install trimesh
 
     
@@ -90,13 +90,18 @@ The Python OpenGL environment can be installed with the following dependencies:
 
 .. code-block:: bash
 
-    pip install PyQt5, vispy
+    pip install PyQt5 vispy
 
 The remaining dependencies are required for the support module to function correctly:
 
 .. code-block:: bash
 
-    pip install triangle, manifold3d, mapbox-earcut
+    pip install manifold3d mapbox-earcut
+
+The `triangle` package is optional for PySLM overall, but required by block and grid-truss support generation. Install
+it intentionally with ``python -m pip install "PythonSLM[triangulation]"`` from PyPI, or
+``python -m pip install ".[triangulation]"`` from a source checkout, when a compatible binary or source build is
+available for your platform.
 
 The `manifold <https://github.com/elalish/manifold>`_ library provides the boolean CSG operations used for intersecting
 meshes between the part model and the support structures.
@@ -183,6 +188,7 @@ After requesting access to the libSLM translators from the author, copy the cont
 the private repository and into the 'Translators' folder. Complete the compilation by calling:
 
 .. code:: bash
+
     pip install ./libSLM
 
 With the `setup.py` file included in this example, the `pip install` command will invoke CMake to build the pybind11

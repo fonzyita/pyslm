@@ -193,7 +193,7 @@ def approximateSupportMapByCentroid(part: Part, overhangAngle: float,
     ray_dir = np.tile(np.array([[0., 0., -1.0]]), (coords.shape[0], 1))
 
     # Find the first intersection hit of rays project from the triangle.
-    hitLoc, index_ray, index_tri = part.geometry.ray.intersects_location(ray_origins=coords,
+    hitLoc, index_ray, _ = part.geometry.ray.intersects_location(ray_origins=coords,
                                                                          ray_directions=ray_dir,
                                                                          multiple_hits=False)
 
@@ -266,7 +266,7 @@ def generateHeightMap(mesh: trimesh.Trimesh,
     rays = np.repeat([upVec], coords.shape[0], axis=0)
 
     # Find the first location of any triangles which intersect with the part
-    hitLoc, index_ray, index_tri = mesh.ray.intersects_location(ray_origins=coords,
+    hitLoc, _, _ = mesh.ray.intersects_location(ray_origins=coords,
                                                                 ray_directions=rays,
                                                                 multiple_hits=False)
     logging.info('\t - finished projecting rays')
@@ -325,7 +325,7 @@ def generateHeightMap2(mesh: trimesh.Trimesh,
     rays = np.repeat([upVec], coords.shape[0], axis=0)
 
     # Find the first location of any triangles which intersect with the part
-    hitLoc, index_ray, index_tri = mesh.ray.intersects_location(ray_origins=coords,
+    hitLoc, _, _ = mesh.ray.intersects_location(ray_origins=coords,
                                                                 ray_directions=rays,
                                                                 multiple_hits=False)
     logging.info('\t - finished projecting rays')

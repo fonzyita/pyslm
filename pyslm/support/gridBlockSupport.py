@@ -570,7 +570,7 @@ class GridBlockSupport(BlockSupportBase):
 
             idx = np.abs(np.diff(coords, axis=1).reshape(-1, 2)[:,1]) > 1e-4
             splitIdx = np.split(np.arange(0, len(idx)), np.argwhere(np.diff(idx)).ravel()+1)
-            partsIdx = np.argwhere(np.array([np.any(idx[split]) for split in splitIdx])) # Locate only masked edges
+            partsIdx = np.flatnonzero(np.array([np.any(idx[split]) for split in splitIdx]))
 
             newPaths = []
 
@@ -1645,8 +1645,6 @@ class GridBlockSupport(BlockSupportBase):
             Split orderId into arrays based on their order value which were assigned during their generation.
             The direction can be identified by their type id derived from the metadata stored extracted during slicing
             """
-            unique, inverse = np.unique(orderId, return_inverse=True)
-
             bins = np.unique(orderId)
             splitPiece = []
 
