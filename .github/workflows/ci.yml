@@ -99,10 +99,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install '.[tests,support,triangulation]'
-        rm -r pyslm
     - name: Unit tests with pytest
       run: |
-        pytest tests/
+        test_dir="$(mktemp -d "$RUNNER_TEMP/pyslm-tests.XXXXXX")"
+        ln -s "$GITHUB_WORKSPACE/models" "$test_dir/models"
+        cd "$test_dir"
+        pytest --import-mode=importlib "$GITHUB_WORKSPACE/tests/"
   test-coverage:
     name: Test Coverage
     runs-on: ubuntu-latest
@@ -122,11 +124,13 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install '.[tests,support,triangulation]'
-        rm -r pyslm
     - name: Run Pytest coverage
       run: |
+        test_dir="$(mktemp -d "$RUNNER_TEMP/pyslm-tests.XXXXXX")"
+        ln -s "$GITHUB_WORKSPACE/models" "$test_dir/models"
+        cd "$test_dir"
         set -o pipefail
-        pytest --junitxml=pytest.xml --cov-report=term-missing:skip-covered --cov=pyslm tests/ | tee pytest-coverage.txt
+        pytest --junitxml="$GITHUB_WORKSPACE/pytest.xml" --cov-report=term-missing:skip-covered --cov=pyslm "$GITHUB_WORKSPACE/tests/" | tee "$GITHUB_WORKSPACE/pytest-coverage.txt"
     - name: Pytest coverage comment
       uses: MishaKav/pytest-coverage-comment@main
       with:

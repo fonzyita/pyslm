@@ -3,9 +3,8 @@ Provides classes and methods for the creation of grid block supports for use typ
 """
 import sys
 from enum import IntEnum
-from typing import Any, Optional, List, Tuple
+from typing import Any, Optional, List, Tuple, Union
 import logging
-
 import warnings
 
 import trimesh
@@ -73,7 +72,7 @@ class GridBlockSupport(BlockSupportBase):
     :attr:`~GridBlockSupport.supportTeethTopLength`, :attr:`~GridBlockSupport.supportTeethBottomLength`,
     :attr:`~GridBlockSupport.supportTeethBaseInterval` and an additional self-penetration distance (
     :attr:`~GridBlockSupport.supportTeethUpperPenetration` and
-    :attr:`~GridBlockSupport.supportTeethLowerPenetration`) to enhance the strength of the support by over- scanning
+    :attr:`~GridBlockSupport.supportTeethLowerPenetration`) to enhance the strength of the support by over-scanning
     material within the solid part internally. The tooth profile is repeated across the upper edge of the intersected
     support volume using an internal overrideable function :meth:`toothProfile`. The generation of support teeth on
     the upper and lower surfaces may be individually toggled by setting
@@ -152,8 +151,8 @@ class GridBlockSupport(BlockSupportBase):
 
         if wallThickness < sys.float_info.epsilon:
             raise ValueError('The support wall thickness must be a positive value')
-
-        self._supportWallThickness = wallThickness
+        else:
+            self._supportWallThickness = wallThickness
 
     @property
     def useUpperSupportTeeth(self) -> bool:
@@ -176,6 +175,7 @@ class GridBlockSupport(BlockSupportBase):
     @useLowerSupportTeeth.setter
     def useLowerSupportTeeth(self, state: bool) -> None:
         self._useLowerSupportTeeth = state
+
     @property
     def supportTeethHeight(self) -> float:
         """
@@ -269,6 +269,10 @@ class GridBlockSupport(BlockSupportBase):
 
     @trussWidth.setter
     def trussWidth(self, width: float) -> None:
+
+        if width < sys.float_info.epsilon:
+            raise ValueError('The truss width must be a positive value')
+
         self._trussWidth = width
 
     @property
@@ -555,7 +559,6 @@ class GridBlockSupport(BlockSupportBase):
         """
         Multiple polygon intersection may be generated and require processing separately
         """
-
         offsetPaths = []
 
         for path in paths:
@@ -594,48 +597,44 @@ class GridBlockSupport(BlockSupportBase):
                 isccw = seg[-1, 1] < seg[0, 1]
                 dir = -1.0 if isccw else 1.0
 
-                repPattern = self.toothProfile()
+                if self._useLowerSupportTeeth or self._useUpperSupportTeeth:
 
-                patternLen = repPattern[-1, 0]
+                    """ Generate the tooth profile pattern and repeat across the length of the support edge """
+                    repPattern = self.toothProfile()
 
-                numCycles = int(np.ceil(ps.length / patternLen))
-                patternList = []
+                    patternLen = repPattern[-1, 0]
 
-                for i in range(numCycles):
-                    tPattern = repPattern.copy()
-                    tPattern[:, 0] += patternLen * i
-                    patternList.append(tPattern)
+                    numCycles = int(np.ceil(ps.length / patternLen))
+                    patternList = []
 
-                patternList = np.vstack(patternList)
+                    for i in range(numCycles):
+                        tPattern = repPattern.copy()
+                        tPattern[:, 0] += patternLen * i
+                        patternList.append(tPattern)
 
-                """
-                Clip the interpolate positions. Trimesh PathSampler clips and repeats values, therefore only unique
-                values are selected and used for generating the teeth profile
-                """
-                xPos, idx = np.unique(np.clip(patternList[:, 0], 0, ps.length), return_index=True)
-                teethFinal = ps.sample(xPos)
+                    patternList = np.vstack(patternList)
 
-                teethFinal[:, 0] += dir * patternList[idx, 1]
+                    """
+                    Clip the interpolate positions. Trimesh PathSampler clips and repeats values, therefore only unique
+                    values are selected and used for generating the teeth profile
+                    """
+                    xPos, idx = np.unique(np.clip(patternList[:, 0], 0, ps.length), return_index=True)
+                    teethFinal = ps.sample(xPos)
 
-                """
-                If the number of teeth profiles is beyond the length of the support edge, then exclude the use of a
-                tooth and use the original edge
-                """
-                if numCycles == 1:
-                    teethFinal = seg
+                    teethFinal[:, 0] += dir * patternList[idx, 1]
 
-                # Prevent the generation of lower or upper support teeth
-                if not self._useLowerSupportTeeth and dir > 0:
+                    """
+                    If the number of teeth profiles is beyond the length of the support edge, then exclude the use of a
+                    tooth and use the original edge
+                    """
+                    if numCycles == 1:
+                        teethFinal = seg
+                else:
                     teethFinal = seg
 
                 if dir > 0:
                     lowerPaths.append(teethFinal)
-
-                # Prevent the generation of lower support teeth
-                if not self._useUpperSupportTeeth and dir < 0:
-                    teethFinal = seg
-
-                if dir < 0:
+                elif dir < 0:
                     upperPaths.append(teethFinal)
 
                 newPaths.append(teethFinal)
@@ -648,8 +647,7 @@ class GridBlockSupport(BlockSupportBase):
             """
             Add additional support to the upper and lower surfaces
             """
-            if self._supportWallThickness > 1e-5:
-
+            if self._supportWallThickness  and self._supportWallThickness > 1e-5:
                 if len(upperPaths) == 0 or len(lowerPaths) == 0:
                     continue
 
@@ -729,12 +727,11 @@ class GridBlockSupport(BlockSupportBase):
             """
 
             # Perform the offseting operation
-            outerPaths = pc.execute(10. / BaseHatcher.CLIPPER_SCALEFACTOR)
-
+            outerPaths = pc.execute(1e-4)
             return outerPaths
 
         else:
-            outerPaths = pc.execute(10. / BaseHatcher.CLIPPER_SCALEFACTOR)
+            outerPaths = pc.execute(1e-4)
 
             # Offset the outer boundary to generate the interior boundary
             pc.clear()
@@ -773,7 +770,7 @@ class GridBlockSupport(BlockSupportBase):
 
         solution = pc2.execute(pyclipr.Intersection, pyclipr.FillRule.NonZero, returnOpenPaths=False)
 
-        if self._supportWallThickness > 1e-5:
+        if self._supportWallThickness  and self._supportWallThickness > 1e-5:
 
             pc2.clear()
             pc2.addPaths(solution, pyclipr.Clip)
@@ -882,10 +879,6 @@ class GridBlockSupport(BlockSupportBase):
         """
         pc = pyclipr.ClipperOffset()
         pc.scaleFactor = BaseHatcher.CLIPPER_SCALEFACTOR
-        # Offset the outer path to provide a clean boundary to work with
-        # paths2 = np.hstack([myPolyVerts, np.arange(len(myPolyVerts)).reshape(-1, 1)])
-        # paths2 = list(map(tuple, paths2))
-        # clipPaths = BaseHatcher.scaleToClipper(paths2)
 
         """
         Offset the paths interior
@@ -897,15 +890,9 @@ class GridBlockSupport(BlockSupportBase):
             Only generate the polygon section. This requires processing within pyclipr to process each path
             into the correct order.
             """
-            outerPaths = pc.execute2(10. / BaseHatcher.CLIPPER_SCALEFACTOR)
+            outerPaths = pc.execute(10. / BaseHatcher.CLIPPER_SCALEFACTOR)
+            return outerPaths
 
-            # Process the paths and create valid path rings to form a polygon for triangulation
-            exterior, interior = geometry.sortExteriorInteriorRings(outerPaths, closePolygon=True)
-
-            # Triangulate the surface for re-mapping the mesh to the boundary
-            vy, fy = geometry.triangulatePolygonFromPaths(exterior[0], interior, triangle_args='pa{:.3f}'.format(2.0))
-
-            return vy, fy
         else:
             outerPaths = pc.execute(10. / BaseHatcher.CLIPPER_SCALEFACTOR)
 
@@ -985,24 +972,43 @@ class GridBlockSupport(BlockSupportBase):
             else:
                 solution = pc2.execute(pyclipr.Intersection, pyclipr.FillRule.NonZero)
 
-        # vy, fy = geometry.triangulatePolygon(bufferPoly)
-
-        # Triangulate the polygon - kept as a reference as an alternative
-
-        # pyslm.visualise.plotPolygon(bufferPoly)
-        # simpPolys = pyclipper.SimplifyPolygons(solution)
-        # vy, fy = bufferPoly.triangulate(engine='earcut')
-
-        # poly = Polygon(tuple(map(tuple, exterior[0])), holes=[tuple(map(tuple, ring))for ring in interior])
-
-        # vy, fy =  pyslm.support.geometry.triangulateShapelyPolygon(poly, triangle_args='pa{:.3f}'.format(4.0))
-        #vy, fy = pyslm.support.geometry.triangulatePolygonFromPaths(exterior[0], interior,
-        #                                                            triangle_args='pa{:.3f}'.format(4.0))
-        # vy, fy = bufferPoly.triangulate(triangle_args='pa{:.3f}'.format(4.0))
-        # wvy, fy = triangulatePolygon(solution, closed=False)
-        #return vy, fy
-
         return solution
+
+    @staticmethod
+    def generateVerticalSteinerPoints(exterior: np.ndarray, interior: List[np.ndarray],
+                                      spacingX: Optional[float] = 0.5,
+                                      spacingY: Optional[float] = 1.0) -> np.ndarray:
+        """
+        Generate Steiner points as a regular grid, with non-uniform variation of points
+        distributed in the X and Y axis.
+
+        :param exterior: Exterior boundary vertices (n x 2)
+        :param interior: List of interior hole boundaries
+        :param spacingX: Horizontal spacing between Steiner points
+        :param spacingY: Vertical spacing between Steiner points
+        :return: Array of Steiner points inside the polygon
+        """
+
+        # Create shapely polygon for point-in-polygon test
+        poly = shapely.geometry.Polygon(exterior, holes=interior)
+
+        # Get bounding box
+        bounds = poly.bounds  # (minx, miny, maxx, maxy)
+
+        # Generate grid of candidate points
+        x_coords = np.arange(bounds[0], bounds[2], spacingX)
+        y_coords = np.arange(bounds[1], bounds[3], spacingY)
+
+        steiner_points = []
+
+        # Check each grid point
+        for x in x_coords:
+            for y in y_coords:
+                point = shapely.geometry.Point(x, y)
+                if poly.contains(point):
+                    steiner_points.append([x, y])
+
+        return np.array(steiner_points) if steiner_points else np.array([]).reshape(0, 2)
 
     def generateSupportSkins(self) -> List[trimesh.Trimesh]:
         """
@@ -1016,24 +1022,62 @@ class GridBlockSupport(BlockSupportBase):
         """
         Extract the top and bottom surfaces of the mesh that are perpendicular to the z direction
         """
-        blockSupportSides = blockSupportMesh.copy()
-        blockSupportSides.fix_normals()
-        blockSupportSides.merge_vertices(digits_vertex=3)
-        sin_theta = utils.getFaceZProjectionWeight(blockSupportSides, useConnectivity=False)
+        if 'face_type' in blockSupportMesh.metadata:
+            logging.info('\t - Manifold: Boolean intersection not used. Resolving metadata for support skin extraction')
+            face_metadata = blockSupportMesh.metadata['face_type']
 
-        # First mask removes very small faces
-        # Second mask isolates the outside region
-        mask = blockSupportSides.area_faces > 1e-6
-        mask2 = sin_theta < BlockSupportGenerator._supportSkinSideTolerance
-        mask3 = np.logical_and(mask, mask2)
-        blockSupportSides.update_faces(mask3)
+            # Extract bottom faces
+            bottom_mask = face_metadata == 'bottom'
+            bottom = blockSupportMesh.copy()
+            bottom.update_faces(bottom_mask)
+
+            # Extract top faces
+            top_mask = face_metadata == 'top'
+            top = blockSupportMesh.copy()
+            top.update_faces(top_mask)
+
+            # Extract side faces for processing if required
+            blockSupportSides = blockSupportMesh.copy()
+
+            new_mask = (face_metadata == 'bottom') | (face_metadata == 'top')
+            blockSupportSides.update_faces(new_mask)
+        else:
+            # Fallback to existing Z-projection method
+            blockSupportSides = blockSupportMesh.copy()
+            blockSupportSides.fix_normals()
+            blockSupportSides.merge_vertices(digits_vertex=3)
+            sin_theta = utils.getFaceZProjectionWeight(blockSupportSides, useConnectivity=False)
+
+            normals = blockSupportSides.face_normals
+            # ensure the normals are normalised
+
+            TOL = 5e-3
+            initialSideMask = np.abs(normals[:, 2]) < TOL
+
+            # Use face adjacency to refine the mask
+            face_adjacency = blockSupportSides.face_adjacency
+
+            # Expand side mask using adjacency - propagate to neighboring faces
+            sideMask = initialSideMask.copy()
+
+            for _iteration in range(2):  # Iterate to propagate adjacency
+                for f1, f2 in face_adjacency:
+                    # If one face is a side, propagate to adjacent face if it has weak Z-component
+                    if sideMask[f1] and  np.abs(normals[:, 2])[f2] < TOL:
+                        sideMask[f2] = True
+                    elif sideMask[f2] and  np.abs(normals[:, 2])[f1] < TOL:
+                        sideMask[f1] = True
+
+            blockSupportSides.update_faces(~sideMask)
 
         # Split the top and bottom surfaces to a path - guaranteed to be a manifold 2D polygon
         supportSurfCpy = blockSupportSides.split(only_watertight=False)
 
         supportSurf = []
+
         for surf in supportSurfCpy:
-            if surf.area > 5:
+            # Redduced the minimum area fo all supported regions generated
+            if surf.area > 1e-1:
                 supportSurf.append(surf)
 
         if len(supportSurf) < 2:
@@ -1087,9 +1131,6 @@ class GridBlockSupport(BlockSupportBase):
             # Uncomment to visualise the support if there any issues with the support generation
             # blockSupportSides.show()
             return []
-
-        topPaths = topPoly3D.paths
-        bottomPaths = bottomPoly3D.paths
 
         if len(topPoly3D.paths) != len(bottomPoly3D.paths):
             blockSupportSides.show()
@@ -1175,7 +1216,19 @@ class GridBlockSupport(BlockSupportBase):
             """
             Form the polygon for the support boundary
             """
-            if self._useLowerSupportTeeth:
+            useLowerSupportTeeth = self._useLowerSupportTeeth
+            useUpperSupportTeeth = self._useUpperSupportTeeth
+
+            """
+            If the height of the lower support teeth is greater than the distance between the top and bottom profiles,
+            then disable the lower support teeth to prevent self-intersecting geometry
+            """
+            minDist = np.min(topPolyVerts[:, 1]) - np.max(bottomPolyVerts[:, 1])
+            if minDist < self._supportTeethHeight:
+                useLowerSupportTeeth = False
+                useUpperSupportTeeth = False
+
+            if useLowerSupportTeeth:
                 # Provide a path interpolator to resample the teeth across the profile
                 ps = trimesh.path.traversal.PathSample(bottomPolyVerts)
 
@@ -1203,7 +1256,7 @@ class GridBlockSupport(BlockSupportBase):
                 teethFinalBottom = ps.sample(xPos)
 
                 # teethFinal = ps.sample(np.clip(patternList[:, 0], 0, ps.length))
-                teethFinalBottom[:, 1] += patternList[idx, 1]
+                teethFinalBottom[:, 1] -= patternList[idx, 1]
 
             """
             The bottom vertex of the path is lower than top indicates (counter-clockwise) when the polygon has its
@@ -1211,7 +1264,7 @@ class GridBlockSupport(BlockSupportBase):
             geometry lies at the top or the bottom of the support volume
             """
 
-            if self._useUpperSupportTeeth:
+            if useUpperSupportTeeth:
 
                 # Provide a path interpolator to resample the teeth across the profile
                 ps = trimesh.path.traversal.PathSample(topPolyVerts)
@@ -1243,12 +1296,12 @@ class GridBlockSupport(BlockSupportBase):
 
             vertexList = []
 
-            if self._useUpperSupportTeeth:
+            if useUpperSupportTeeth:
                 vertexList.append(teethFinalTop)
             else:
                 vertexList.append(topPolyVerts)
 
-            if self._useLowerSupportTeeth:
+            if useLowerSupportTeeth:
                 vertexList.append(teethFinalBottom)
             else:
                 vertexList.append(bottomPolyVerts)
@@ -1257,14 +1310,9 @@ class GridBlockSupport(BlockSupportBase):
             myPolyVerts = np.vstack(vertexList)
 
             """
-            Resample the boundary
-            """
-            myPolyVerts = trimesh.path.traversal.resample_path(myPolyVerts, step=0.25)
-
-            """
             Add additional support to the upper and lower surfaces
             """
-            if self._supportWallThickness > 1e-5:
+            if self._supportWallThickness and self._supportWallThickness > 1e-5:
 
                 infillSolution = self.generateSupportSkinInfill(myPolyVerts, returnPolyNodes=False)
 
@@ -1292,6 +1340,13 @@ class GridBlockSupport(BlockSupportBase):
                     offsetWalls = isectPolyB.union(isectPolyA).buffer(self._supportWallThickness)
                     isectPolyC = offsetWalls.intersection(shapely.geometry.Polygon(myPolyVerts))
                 except:
+                    import matplotlib.pyplot as plt
+                    import pyslm.visualise
+
+                    fig, _ = pyslm.visualise.plotPolygon([myPolyVerts])
+                    fig.show()
+                    plt.show()
+                    blockSupportSides.show()
                     raise Exception('Error: please share a bug report')
 
                 paths = [np.array(path) for path in infillSolution]
@@ -1301,7 +1356,13 @@ class GridBlockSupport(BlockSupportBase):
                 for path in newPaths:
                     newPaths2.append(np.vstack([path, path[0, :]]))
 
-                ac = [np.array(pol) for pol in hatchingUtils.poly2Paths(isectPolyC)]
+                try:
+                    ac = [np.array(pol) for pol in hatchingUtils.poly2Paths(isectPolyC)]
+                except:
+                    import pyslm.visualise
+                    fig, _ = pyslm.visualise.plotPolygon([myPolyVerts])
+                    fig.show()
+                    self.supportVolume.show()
 
                 pc = pyclipr.Clipper()
                 pc.addPaths(ac, pyclipr.Clip)
@@ -1326,10 +1387,29 @@ class GridBlockSupport(BlockSupportBase):
                 raise Exception('Error: exterior count < 1: Please report bug report')
 
             if len(exterior) > 1:
+                import pyslm.visualise
+                #pyslm.visualise.plotPolygon(exterior)
+                #import matplotlib.pyplot as plt
+                #plt.show()
                 raise Exception('Error: exterior count > 1. Increase the support border distance to resolve this issue. ')
+                print('warning: exterior count > 1. Increase the support border distance to resolve this issue. ')
 
-            vy, fy = geometry.triangulatePolygonFromPaths(exterior[0], interior, triangle_args='pa{:.3f}'.format(4.0))
+            """
+            Resample the boundary
+            """
+            exterior[0] = np.vstack([exterior[0], exterior[0][0, :]])
+            exterior[0] = trimesh.path.traversal.resample_path(exterior[0], step=0.25)
 
+            """
+            Add Steiner Points:
+            Inclusion of steiner points to regularise the triangulation and improve mesh quality
+            """
+            steiner_pts = GridBlockSupport.generateVerticalSteinerPoints(exterior[0], interior, spacingY=1.0)
+
+            #vy, f§y = geometry.triangulatePolygonFromPaths(exterior[0], interior, triangle_args='pa{:.3f}'.format(4.0))
+            vy, fy = geometry.triangulatePolygonFromPaths(exterior[0], interior,
+                                                          steiner_points=steiner_pts,
+                                                          triangle_args='pa{:.3f}'.format(4.0)) #0.3 used
             """
             Create the interpolation or mapping function to go from the 2D polygon to the 3D mesh for the support boundary.
             This is done based on the top most projected curve.
@@ -1469,10 +1549,20 @@ class GridBlockSupport(BlockSupportBase):
                 idx = 0
                 for sect in section.children:
 
+                    # check if the exterior and interior rings are valid or overlap
                     exterior, interior = geometry.sortExteriorInteriorRings(sect, closePolygon=True)
+
+                    try:
+                        poly = shapely.geometry.Polygon(exterior[0], holes=interior if len(interior) > 0 else None)
+                        if not poly.is_valid:
+                            poly = poly.buffer(0)
+                            continue
+                    except:
+                        continue
+
                     vertsy, facesy = geometry.triangulatePolygonFromPaths(exterior[0],
                                                                           interior,
-                                                                          triangle_args='pa{:.3f}'.format(4.0))
+                                                                          triangle_args='pa{:.3f}'.format(1.0))
                     vy.append(vertsy)
                     fy.append(facesy + idx)
                     idx += len(vertsy)
@@ -1825,7 +1915,7 @@ class GridBlockSupportGenerator(BlockSupportGenerator):
 
     @property
     def useLowerSupportTeeth(self) -> bool:
-        return self._useUpperSupportTeeth
+        return self._useLowerSupportTeeth
 
     @useLowerSupportTeeth.setter
     def useLowerSupportTeeth(self, state: bool) -> None:
@@ -1847,7 +1937,7 @@ class GridBlockSupportGenerator(BlockSupportGenerator):
         return self._supportWallThickness
 
     @supportWallThickness.setter
-    def supportWallThickness(self, wallThickness: float) -> None:
+    def supportWallThickness(self, wallThickness: Union[float, bool]) -> None:
         self._supportWallThickness = wallThickness
 
     @property
@@ -1924,6 +2014,23 @@ class GridBlockSupportGenerator(BlockSupportGenerator):
     def supportTeethUpperPenetration(self, distance: float) -> None:
         self._supportTeethUpperPenetration = distance
 
+    @property
+    def numSkinMeshSubdivideIterations(self) -> int:
+        """
+        Number of times to subdivide the exterior skin of the support mesh to increase the resolution to improve the
+        quality of output mesh in order for this to conform with the boundary of the support block volume.
+        The default value is 2.
+        """
+        return self._numSkinMeshSubdivideIterations
+
+    @numSkinMeshSubdivideIterations.setter
+    def numSkinMeshSubdivideIterations(self, iterations: int) -> None:
+
+        if iterations < 0:
+            raise ValueError('Number of skin mesh subdivide iterations must be a positive integer or zero')
+
+        self._numSkinMeshSubdivideIterations = int(iterations)
+
     def identifySupportRegions(self, part: Part, overhangAngle: float,
                                findSelfIntersectingSupport: bool = True) -> List[GridBlockSupport]:
         """
@@ -1968,8 +2075,12 @@ class GridBlockSupportGenerator(BlockSupportGenerator):
             gridBlock.useUpperSupportTeeth = self._useUpperSupportTeeth
 
             gridBlock.supportBorderDistance = self._supportBorderDistance
+
+            # Grid Truss Parameters
             gridBlock.trussWidth = self._trussWidth
             gridBlock.trussAngle = self._trussAngle
+
+            # Redundant
             gridBlock.mergeMesh = self._mergeMesh
 
             gridBlocks.append(gridBlock)

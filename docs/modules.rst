@@ -16,12 +16,14 @@
     :no-inherited-members:
     :skip: BasicIslandHatcher, Island, IslandHatcher
 
-.. toctree::
-    :maxdepth: 1
+.. autoclass:: pyslm.hatching.BasicIslandHatcher
+    :members:
 
-    api/pyslm.hatching.BasicIslandHatcher
-    api/pyslm.hatching.Island
-    api/pyslm.hatching.IslandHatcher
+.. autoclass:: pyslm.hatching.Island
+    :members:
+
+.. autoclass:: pyslm.hatching.IslandHatcher
+    :members:
 
 .. automodapi:: pyslm.support
     :no-inheritance-diagram:
@@ -30,4 +32,3 @@
 .. automodapi:: pyslm.visualise
     :no-inheritance-diagram:
     :no-inherited-members:
-    :skip: getContoursFromShapelyPolygon

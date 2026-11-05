@@ -1,6 +1,7 @@
 """
 Provides supporting functions to generate geometry for support structures
 """
+
 from typing import List, Optional, Tuple
 import logging
 import collections
@@ -12,6 +13,8 @@ import trimesh
 from trimesh import grouping
 
 import shapely.geometry
+import skimage.morphology
+import skimage.transform
 
 # Triangulation Libraries
 try:
@@ -343,9 +346,9 @@ def boolIntersect(meshA: trimesh.Trimesh, meshB: trimesh.Trimesh) -> trimesh.Tri
         the underlying manifold3D Library can correctly perform the operation. The resultant mesh is processed natively
         using Trimesh to merge coincident vertices and remove degenerate faces.
 
-      :param meshA: Mesh A
-      :param meshB: Mesh B
-      :return: The Boolean intersection between Mesh A and Mesh B.
+    :param meshA: Mesh A
+    :param meshB: Mesh B
+    :return: The Boolean intersection between Mesh A and Mesh B.
       """
     #vertsOut, facesOut = pycork.intersection(meshA.vertices, meshA.faces, meshB.vertices, meshB.faces)
 
@@ -500,6 +503,7 @@ def triangulateShapelyPolygon(polygon: shapely.geometry.Polygon,
     return result['vertices'], result['triangles']
 
 def triangulatePolygonFromPaths(exterior: np.ndarray, interiors: List[np.ndarray],
+                                steiner_points=None,
                                 triangle_args: Optional[str] = None,
                                 **kwargs):
     """
@@ -526,9 +530,13 @@ def triangulatePolygonFromPaths(exterior: np.ndarray, interiors: List[np.ndarray
 
     # run the triangulation
     _require_triangulation_backend()
+    if steiner_points is not None and len(steiner_points) > 0:
+        arg['vertices'] = np.vstack([arg['vertices'], steiner_points])
+
     result = triangulate(arg, triangle_args)
 
     return result['vertices'], result['triangles']
+
 
 
 def _polygon_to_kwargs2(exterior: np.ndarray, interiors:  List[np.ndarray]):
@@ -813,3 +821,34 @@ def generatePolygonBoundingBox(bbox: np.ndarray) -> shapely.geometry.Polygon:
                                                  [a[0], b[0]]])
 
     return bboxPoly
+
+def calculatePolygonThickness(polygon: shapely.geometry.Polygon,
+                              resolution: float) -> Tuple[float, float, float]:
+    """
+    Calculates the thickness of a polygon by determining the minimum distance between the exterior and interior
+    rings of the polygon.
+
+    :param polygon: The polygon to calculate the thickness for
+    :return: A tuple of the thickness statistics (mean, min, max)
+    """
+
+    # Convert bufferPoly (shapely polygon) to a trimesh Path2D
+    poly_path = trimesh.load_path(polygon)
+
+    # Rasterise the polygon to create a binary image using inbuilt method. Not efficient but
+    bounds = poly_path.bounds
+    image = np.array(poly_path.rasterize(resolution, bounds[0, :]))
+
+    # Calculate the medial axis (skeleton) and distance transform
+    skeleton, distance = skimage.morphology.medial_axis(image, return_distance=True)
+
+    # The distance values on the skeleton represent half the local thickness
+    thicknessMap = distance * 2 * resolution
+
+    # Get statistics about thickness
+    skeletonThickness = thicknessMap[skeleton]
+    meanThickness = np.mean(skeletonThickness)
+    minThickness = np.min(skeletonThickness)
+    maxThickness = np.max(skeletonThickness)
+
+    return meanThickness, minThickness, maxThickness

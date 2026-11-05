@@ -92,11 +92,21 @@ The Python OpenGL environment can be installed with the following dependencies:
 
     pip install PyQt5 vispy
 
+The interactive ``pygfx`` visualiser uses WGPU, ``fastplotlib`` and
+``rendercanvas``. Install its optional dependencies on Python 3.10 or later:
+
+.. code-block:: bash
+
+    python -m pip install "PythonSLM[visualisation]"
+
 The remaining dependencies are required for the support module to function correctly:
 
 .. code-block:: bash
 
-    pip install manifold3d mapbox-earcut
+    python -m pip install "PythonSLM[support]"
+
+The support extra installs the WGPU backend on Python 3.10 or later. Core slicing
+and hatching remain available on the project's full supported Python range.
 
 The `triangle` package is optional for PySLM overall, but required by block and grid-truss support generation. Install
 it intentionally with ``python -m pip install "PythonSLM[triangulation]"`` from PyPI, or

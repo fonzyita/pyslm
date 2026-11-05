@@ -87,10 +87,12 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install '.[tests,support,triangulation]'
-        rm -r pyslm
     - name: Unit tests
       run: |
-        pytest -v tests
+        test_dir="$(mktemp -d "$RUNNER_TEMP/pyslm-tests.XXXXXX")"
+        ln -s "$GITHUB_WORKSPACE/models" "$test_dir/models"
+        cd "$test_dir"
+        pytest -v --import-mode=importlib "$GITHUB_WORKSPACE/tests/"
 
   test-examples-build:
     name: Test examples ${{ matrix.pyversion }}

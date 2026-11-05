@@ -1011,7 +1011,7 @@ class StripeHatcher(Hatcher):
 class BasicIslandHatcher(Hatcher):
     """
     The class extends the standard :class:`Hatcher` but generates a set of islands of fixed size (
-    :attr:`.islandWidth`)  which covers a region.  This a common scan strategy adopted across numerous L-PBF (SLM)
+    :attr:`~pyslm.hatching.BasicIslandHatcher.islandWidth`)  which covers a region.  This a common scan strategy adopted across numerous L-PBF (SLM)
     systems. This scan strategy in particular is designed to have effect of limiting the maximum length of the scan
     whilst by orientating the scan vectors orthogonal to each other mitigating any preferential distortion or curling
     due to residual stress in a single direction and any effects to microstructure.
@@ -1021,7 +1021,7 @@ class BasicIslandHatcher(Hatcher):
     entire boundary. Other attribute and properties can be added to the class to provide further user definable
     behavior such as:
 
-    * Island Size (:attr:`islandWidth`) - the length of each size of the square island
+    * Island Size (:attr:`~pyslm.hatching.BasicIslandHatcher.islandWidth`) - the length of each size of the square island
     * Island Overlap (:attr:`islandOverlap`) - the overlap between adjacent islands
 
     .. warning::

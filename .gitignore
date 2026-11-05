@@ -21,6 +21,7 @@ eggs/
 .egg-info
 lib/
 lib64/
+out/*
 parts/
 sdist/
 var/
@@ -88,6 +89,14 @@ celerybeat-schedule
 
 # dotenv
 .env
+.env.*
+!.env.example
+
+# Local credentials and certificates
+*.pem
+*.key
+*.p12
+*.pfx
 
 # virtualenv
 .venv/

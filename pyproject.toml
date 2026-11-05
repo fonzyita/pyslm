@@ -38,7 +38,8 @@ dependencies = [
     "scikit-image",
     "scipy",
     "setuptools",
-    "shapely>2.0",
+    "shapely>=2.0,<2.1; python_version < '3.10'",
+    "shapely>2.1; python_version >= '3.10'",
     "trimesh>4.0"
 ]
 
@@ -67,7 +68,10 @@ docs = [
     "sphinx_rtd_theme",
     "furo",
     "trimesh",
-    "vispy",
+    "pygfx",
+    "wgpu",
+    "fastplotlib",
+    "rendercanvas",
     "PyQt5"
 ]
 easy = [
@@ -88,11 +92,17 @@ triangulation = [
 support = [
     "mapbox-earcut",
     "manifold3d",
-    "PyQt5",
     "setuptools",
-    "shapely",
+    "shapely>=2.0,<2.1; python_version < '3.10'",
+    "shapely>2.1; python_version >= '3.10'",
     "trimesh",
-    "vispy",
+    "wgpu>=0.29.0; python_version >= '3.10'",
+]
+visualisation = [
+    "fastplotlib; python_version >= '3.10'",
+    "pygfx>=0.15.3; python_version >= '3.10'",
+    "rendercanvas>=2.6.0; python_version >= '3.10'",
+    "wgpu>=0.29.0; python_version >= '3.10'",
 ]
 desktop = [
     "mapbox-earcut",
@@ -137,7 +147,6 @@ include = [
     "pyslm_app",
     "models",
     "examples"
-
 ]
 
 [tool.pytest.ini_options]
