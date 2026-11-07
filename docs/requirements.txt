@@ -1,0 +1,22 @@
+sphinx
+sphinx-automodapi
+sphinx-autodoc-typehints
+sphinx-paramlinks
+autodocsumm
+pypandoc
+sphinx_rtd_theme
+m2r2==0.3.4
+docutils==0.21.2
+mock
+numpy
+scipy
+shapely>=2.0
+networkx
+trimesh>=4.0.0
+matplotlib
+vispy
+mapbox_earcut
+scikit-image
+PyQt5
+pyclipr >= 0.1.7
+manifold3d
