@@ -43,22 +43,43 @@ class _SupportGeometryWorker(QtCore.QObject):
     """
 
     identified = QtCore.pyqtSignal(int)
-    progress = QtCore.pyqtSignal(int, int)
+    # Overall percentage (0-100) and a description of the current step
+    progress = QtCore.pyqtSignal(int, str)
     finished = QtCore.pyqtSignal(list, list)
     failed = QtCore.pyqtSignal(str)
 
-    def __init__(self, identify: Callable[[], List[Any]]) -> None:
+    # Share of the overall progress taken by the region identification
+    IDENTIFICATION_SHARE = 0.3
+
+    def __init__(self, identify: Callable[[Callable[[float], None]], List[Any]]) -> None:
         super().__init__()
         self._identify = identify
+        self._last_percent = -1
+
+    def _report(self, fraction: float, message: str) -> None:
+        percent = int(max(0.0, min(1.0, fraction)) * 100)
+        # Only signal real changes so the GUI thread is not flooded with events
+        if percent != self._last_percent:
+            self._last_percent = percent
+            self.progress.emit(percent, message)
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
+        share = self.IDENTIFICATION_SHARE
         try:
-            regions = self._identify()
-            self.identified.emit(len(regions))
-            generated, meshes = ModelSession.build_support_geometry(
-                regions, self.progress.emit
+            regions = self._identify(
+                lambda fraction: self._report(share * fraction, "Identificazione regioni di supporto")
             )
+            self.identified.emit(len(regions))
+
+            def build_progress(fraction: float, index: int, count: int) -> None:
+                region = min(index + 1, count)
+                self._report(
+                    share + (1.0 - share) * fraction,
+                    f"Costruzione geometria: regione {region} di {count}",
+                )
+
+            generated, meshes = ModelSession.build_support_geometry(regions, build_progress)
         except Exception as error:
             logging.exception("Generazione supporti PySLM non riuscita")
             self.failed.emit(str(error))
@@ -77,6 +98,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._support_thread: Optional[QtCore.QThread] = None
         self._support_worker: Optional["_SupportGeometryWorker"] = None
         self.help_badges: dict = {}
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setFixedWidth(260)
+        self.progress_bar.setVisible(False)
         self.setWindowTitle("PySLM | Metal AM Preparation")
         self.resize(1440, 900)
         self._build_ui()
@@ -90,6 +116,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_toolbar()
         self._build_panels()
         self._build_diagnostics()
+        self.statusBar().addPermanentWidget(self.progress_bar)
         self.statusBar().showMessage("Nessun componente caricato")
 
     def _build_toolbar(self) -> None:
@@ -403,6 +430,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 border-radius: 8px; font-size: 10px; font-weight: 700;
             }
             QLabel#helpBadge:hover { background: #2f5f8f; color: #ffffff; }
+            QProgressBar {
+                background: #1b222b; border: 1px solid #3a4654; border-radius: 4px;
+                color: #e6ebf0; text-align: center; height: 16px;
+            }
+            QProgressBar::chunk { background: #2f8fd8; border-radius: 3px; }
             QToolTip {
                 background: #22303d; color: #e6ebf0; border: 1px solid #4b6b8a; padding: 6px;
             }
@@ -753,17 +785,17 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         session = self.session
 
-        def identify() -> List[Any]:
-            return session.identify_support_regions(*arguments, wall_parameters=wall_parameters)
+        def identify(progress: Callable[[float], None]) -> List[Any]:
+            return session.identify_support_regions(
+                *arguments, wall_parameters=wall_parameters, progress=progress
+            )
 
         thread = QtCore.QThread(self)
         worker = _SupportGeometryWorker(identify)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.identified.connect(
-            lambda count: self.statusBar().showMessage(
-                f"Regioni di supporto individuate: {count}. Costruzione geometria…"
-            )
+            lambda count: self._log(f"Regioni di supporto individuate: {count}.")
         )
         worker.progress.connect(self._support_build_progress)
         worker.finished.connect(
@@ -776,7 +808,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._support_thread = thread
         self._support_worker = worker
         self._set_busy(True)
-        self.statusBar().showMessage("Identificazione regioni di supporto…")
+        self._show_progress(0, "Identificazione regioni di supporto")
         thread.start()
 
     def _set_busy(self, busy: bool) -> None:
@@ -787,11 +819,13 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             QtWidgets.QApplication.restoreOverrideCursor()
 
-    def _support_build_progress(self, done: int, total: int) -> None:
-        if done < total:
-            self.statusBar().showMessage(
-                f"Costruzione geometria supporti: regione {done + 1} di {total}…"
-            )
+    def _support_build_progress(self, percent: int, message: str) -> None:
+        self._show_progress(percent, message)
+
+    def _show_progress(self, percent: int, message: str) -> None:
+        self.progress_bar.setValue(percent)
+        self.progress_bar.setVisible(True)
+        self.statusBar().showMessage(f"{message}…")
 
     def _support_build_finished(self, support_type: str, generated: list, meshes: list) -> None:
         self.session.apply_generated_supports(generated, meshes)
@@ -821,6 +855,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._warn(f"Generazione supporti PySLM non riuscita.\n\n{message}")
 
     def _support_thread_finished(self) -> None:
+        self.progress_bar.setVisible(False)
         self._set_busy(False)
         if self._support_thread is not None:
             self._support_thread.deleteLater()

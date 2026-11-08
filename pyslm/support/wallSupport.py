@@ -168,6 +168,8 @@ class WallBlockSupport(BlockSupportBase):
                  parameters: Optional[WallSupportParameters] = None):
         super().__init__(supportObject, supportVolume, supportSurface, intersectsPart)
         self.parameters = parameters if parameters is not None else WallSupportParameters()
+        # Optional callable(done, total) reporting how many walls of this region have been built
+        self.progressCallback = None
 
     def __str__(self) -> str:
         return 'WallBlockSupport'
@@ -266,7 +268,9 @@ class WallBlockSupport(BlockSupportBase):
 
         meshes = []
         first = 0
-        for wall, u in zip(walls, samplesU):
+        for wallIndex, (wall, u) in enumerate(zip(walls, samplesU)):
+            if self.progressCallback is not None:
+                self.progressCallback(wallIndex, len(walls))
             sampleIntervals = [intervals[lineStart[i]:lineEnd[i]] for i in range(first, first + len(u))]
             first += len(u)
             if not any(len(iv) for iv in sampleIntervals):

@@ -467,6 +467,9 @@ class BlockSupportGenerator(BaseSupportGenerator):
         self._useApproxBasePlateSupport = False  #
         self._splineSimplificationFactor = 20.0
 
+        # Optional callable(done, total) reporting how many overhang sub-regions have been processed
+        self.progressCallback = None
+
     def __str__(self) -> str:
         return 'BlockSupportGenerator'
 
@@ -787,7 +790,10 @@ class BlockSupportGenerator(BaseSupportGenerator):
         totalBooleanTime = 0.0
 
         """ Process sub-regions"""
-        for subregion in overhangSubregions:
+        for subregionIndex, subregion in enumerate(overhangSubregions):
+
+            if self.progressCallback is not None:
+                self.progressCallback(subregionIndex, len(overhangSubregions))
 
             logging.info('Processing subregion')
 

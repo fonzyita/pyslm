@@ -511,6 +511,7 @@ class ModelSession:
         upper_teeth: bool,
         lower_teeth: bool,
         wall_parameters: Optional[Any] = None,
+        progress: Optional[Callable[[float], None]] = None,
     ) -> List[Any]:
         """Identify the support regions.
 
@@ -518,7 +519,8 @@ class ModelSession:
 
         ``wall_parameters`` (a :class:`pyslm.support.WallSupportParameters`) configures the
         ``"walls"`` support type; ``use_skin``, ``upper_teeth`` and ``lower_teeth`` override
-        its border and teeth switches.
+        its border and teeth switches. ``progress`` receives the processed fraction
+        (0 to 1) of the overhang sub-regions.
         """
         part = self._require_part()
         from pyslm.support import geometry as support_geometry
@@ -568,8 +570,12 @@ class ModelSession:
             generator.useUpperSupportTeeth = bool(upper_teeth)
             generator.useLowerSupportTeeth = bool(lower_teeth)
 
+        if progress is not None:
+            generator.progressCallback = lambda done, total: progress(done / total if total else 1.0)
         generation_start = perf_counter()
         regions = generator.identifySupportRegions(part, float(overhang_angle), True)
+        if progress is not None:
+            progress(1.0)
         logging.info(
             "Support region identification completed in %.2fs (%d regions)",
             perf_counter() - generation_start,
@@ -580,22 +586,46 @@ class ModelSession:
     @staticmethod
     def build_support_geometry(
         regions: Sequence[Any],
-        progress: Optional[Callable[[int, int], None]] = None,
+        progress: Optional[Callable[[float, int, int], None]] = None,
     ) -> Tuple[List[Any], List[Any]]:
         """Build the mesh of every identified support region.
 
         This step does not touch the session state, so the desktop application
-        runs it on a worker thread. ``progress`` is called with the
-        number of processed regions and the total before each region and once
-        at the end.
+        runs it on a worker thread. ``progress`` is called with the completed
+        fraction (0 to 1) of the whole build, the index of the region being
+        built and the number of regions. Each region weighs in proportion to
+        its support volume; regions that report their own progress (e.g. wall
+        supports, wall by wall) advance the fraction within the region.
         """
         build_start = perf_counter()
         generated_regions = []
         meshes = []
         skipped_empty_regions = 0
+
+        weights = []
+        for region in regions:
+            volume = getattr(region, "supportVolume", None)
+            if volume is None or len(getattr(volume, "faces", ())) == 0:
+                weights.append(1e-6)  # empty regions are skipped below and take no time
+                continue
+            try:
+                weights.append(max(abs(float(volume.volume)), 1e-6))
+            except Exception:
+                weights.append(1e-6)
+        total_weight = float(sum(weights)) or 1.0
+        completed_weight = 0.0
+
         for index, region in enumerate(regions):
             if progress is not None:
-                progress(index, len(regions))
+                progress(completed_weight / total_weight, index, len(regions))
+
+                def region_progress(done: int, total: int, index: int = index, base: float = completed_weight) -> None:
+                    fraction = done / total if total else 1.0
+                    progress((base + weights[index] * fraction) / total_weight, index, len(regions))
+
+                if hasattr(region, "progressCallback"):
+                    region.progressCallback = region_progress
+            completed_weight += weights[index]
             support_volume = getattr(region, "supportVolume", None)
             if (
                 support_volume is None
@@ -622,7 +652,7 @@ class ModelSession:
                 generated_regions.append(region)
                 meshes.append(mesh)
         if progress is not None:
-            progress(len(regions), len(regions))
+            progress(1.0, len(regions), len(regions))
 
         if regions and not generated_regions and not skipped_empty_regions:
             raise RuntimeError(

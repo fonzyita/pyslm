@@ -760,3 +760,34 @@ def test_every_adjustable_parameter_has_a_help_badge(monkeypatch: pytest.MonkeyP
     badge.enterEvent(QtGui.QEnterEvent(QtCore.QPointF(), QtCore.QPointF(), QtCore.QPointF()))
     assert "Distanza tra due pareti" in QtWidgets.QToolTip.text()
     window.close()
+
+
+def test_support_build_progress_is_monotonic_and_weighted_by_volume() -> None:
+    class FakeRegion:
+        def __init__(self, size: float, walls: int) -> None:
+            self.supportVolume = trimesh.creation.box(extents=[size] * 3)
+            self.progressCallback = None
+            self._walls = walls
+
+        def geometry(self) -> trimesh.Trimesh:
+            for wall in range(self._walls):
+                if self.progressCallback is not None:
+                    self.progressCallback(wall, self._walls)
+            return trimesh.creation.box(extents=[1.0] * 3)
+
+    # Volumes 1 and 7 mm^3: the first region is 1/8 of the work
+    regions = [FakeRegion(1.0, 4), FakeRegion(7.0 ** (1.0 / 3.0), 10)]
+    reports = []
+    generated, meshes = ModelSession.build_support_geometry(
+        regions, lambda fraction, index, count: reports.append((fraction, index, count))
+    )
+
+    fractions = [fraction for fraction, _, _ in reports]
+    assert len(generated) == len(meshes) == 2
+    assert fractions == sorted(fractions)
+    assert fractions[0] == pytest.approx(0.0) and fractions[-1] == pytest.approx(1.0)
+    # The second region starts after the first region's share of the volume
+    second_start = next(fraction for fraction, index, _ in reports if index == 1)
+    assert second_start == pytest.approx(1.0 / 8.0)
+    # Walls of the second region advance the progress inside its share
+    assert len({fraction for fraction, index, _ in reports if index == 1}) >= 10
