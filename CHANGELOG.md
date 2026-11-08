@@ -9,10 +9,14 @@ All notable changes to this project will be documented in this file.
 - Pytest Unit Testing Framework [7f5ebceecd27095f478d7fd2d178a55952236c35](https://github.com/drlukeparry/pyslm/commit/7f5ebceecd27095f478d7fd2d178a55952236c35)
 - Added a dedicated `triangulation` extra for the optional `triangle` backend.
 - Added Python 3.8 to CI and made built-in generic annotations safe to evaluate on the declared minimum runtime.
-- In `pyslm.support.GridBlockSupport` added a 3D body-centred cubic (BCC) strut lattice for grid supports, with a configurable
-  `latticeCellSize` (default 5 mm). Struts are clipped to the support volume so boundary struts are kept rather than dropped.
+- In `pyslm.support.GridBlockSupport` added a conformal 3D body-centred cubic (BCC) strut lattice for grid supports, with a
+  configurable `latticeCellSize` (default 5 mm). The lattice is built from vertical pillars that each run from the lower
+  surface (build plate or part) to the overhang, braced to their neighbours by BCC diagonals, so it has no disconnected
+  strut fragments. With `useSupportSkin`, a braced perimeter wall of pillars (spacing `supportBorderDistance`) follows the
+  support boundary and also supports regions narrower than one cell.
 - In `pyslm.support.GridBlockSupport` added `generateSupportBoundaryRails`, which builds thin perimeter rails along the real
-  support contours (spacing set by `supportBorderDistance`), handling regions with several disconnected contours.
+  support contours. It is no longer used by `geometry()`, which uses the perimeter wall of the conformal lattice instead.
+- Added `pyslm.support.utils.verticalIntervals`, returning where vertical lines lie inside a closed mesh.
 - Desktop app: exposed the BCC cell size, border distance and upper/lower support teeth in the support panel.
 - Added `pyslm.support.utils.pointsInsideMesh`, a vectorised vertical-ray winding test for closed meshes, and
   `pyslm.support.utils.cylinderSegments` for building many strut cylinders in one operation.

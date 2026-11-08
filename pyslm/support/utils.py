@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, List, Optional, Tuple, Union
+from typing import Iterable, Iterator, List, Optional, Tuple, Union
 
 import networkx as nx
 
@@ -357,28 +357,27 @@ def _expandRanges(starts: np.ndarray, lengths: np.ndarray) -> np.ndarray:
     return np.repeat(np.asarray(starts, dtype=np.int64) - offsets, lengths) + np.arange(total, dtype=np.int64)
 
 
-def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 4_000_000) -> np.ndarray:
+def _iterVerticalHits(mesh: trimesh.Trimesh, xy: np.ndarray,
+                      maxPairs: int = 4_000_000) -> Iterator[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """
-    Fast inside/outside test of points against a closed (watertight) mesh.
+    Intersect vertical lines through the given XY positions with a mesh, in vectorised batches.
 
-    A vertical ray is cast upwards from every point and the signed crossings with the mesh are summed (a generalised
-    winding number along +Z). Triangles with no projected area in the XY plane - vertical walls and degenerate
-    triangles - never contribute a crossing, so they need no special handling. Candidate triangle/point pairs are
-    found with a uniform 2D bin grid and evaluated in vectorised batches, which is far quicker than
-    :meth:`trimesh.Trimesh.contains` for the many thousands of samples used when generating lattice supports.
+    Triangles with no projected area in the XY plane - vertical walls and degenerate triangles - never produce a
+    crossing. Candidate triangle/line pairs are found with a uniform 2D bin grid; for every strip of bins the Y range
+    of a triangle is clipped to the strip, so long thin triangles do not test every line in their bounding box.
 
-    :param mesh: A closed mesh. The result is independent of the face winding orientation.
-    :param points: The (n, 3) query points
-    :param maxPairs: Upper bound on candidate triangle/point pairs evaluated per batch, to cap memory use
-    :return: A boolean array, :code:`True` for points inside the mesh
+    :param mesh: The mesh to intersect
+    :param xy: The (n, 2) line positions
+    :param maxPairs: Upper bound on candidate triangle/line pairs evaluated per batch, to cap memory use
+    :return: Batches of ``(lineIndex, z, sign)``, where ``sign`` is +1 for faces whose projection is counter-clockwise
     """
-    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    inside = np.zeros(len(pts), dtype=bool)
-    if len(pts) == 0 or mesh is None or len(mesh.faces) == 0:
-        return inside
+    xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    if len(xy) == 0 or mesh is None or len(mesh.faces) == 0:
+        return
 
     tris = np.asarray(mesh.triangles, dtype=np.float64)
-    scale = float(np.max(np.ptp(np.vstack([tris.reshape(-1, 3), pts]), axis=0))) or 1.0
+    scale = float(max(np.max(np.ptp(tris[:, :, :2].reshape(-1, 2), axis=0)),
+                      np.max(np.ptp(xy, axis=0)), np.max(np.ptp(tris[:, :, 2])))) or 1.0
 
     # Twice the signed XY area; its sign encodes whether the face points up or down
     det = ((tris[:, 1, 0] - tris[:, 0, 0]) * (tris[:, 2, 1] - tris[:, 0, 1])
@@ -386,16 +385,17 @@ def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 
     keep = np.abs(det) > (1e-12 * scale * scale)
     tris, det = tris[keep], det[keep]
     if len(tris) == 0:
-        return inside
+        return
 
-    # Offset the query columns by a tiny irrational amount so a ray never passes exactly through a shared triangle
-    # edge or vertex, where it could otherwise be counted twice or not at all.
-    q = pts[:, :2] + np.array([np.sqrt(2.0), np.sqrt(3.0)]) * (1e-7 * scale)
+    # Offset the lines by a tiny irrational amount so a line never passes exactly through a shared triangle edge or
+    # vertex, where it could otherwise be counted twice or not at all.
+    q = xy + np.array([np.sqrt(2.0), np.sqrt(3.0)]) * (1e-7 * scale)
 
-    lo = np.minimum(q.min(axis=0), tris[:, :, :2].min(axis=(0, 1)))
-    hi = np.maximum(q.max(axis=0), tris[:, :, :2].max(axis=(0, 1)))
+    txy = tris[:, :, :2]
+    lo = np.minimum(q.min(axis=0), txy.min(axis=(0, 1)))
+    hi = np.maximum(q.max(axis=0), txy.max(axis=(0, 1)))
     span = np.maximum(hi - lo, 1e-9)
-    nBins = int(np.clip(np.sqrt(len(pts)), 1, 1024))
+    nBins = int(np.clip(np.sqrt(len(q)), 1, 1024))
     binSize = span / nBins
 
     pbx = np.clip(((q[:, 0] - lo[0]) / binSize[0]).astype(np.int64), 0, nBins - 1)
@@ -405,11 +405,9 @@ def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 
     binCounts = np.bincount(pointBin, minlength=nBins * nBins)
     binStarts = np.concatenate(([0], np.cumsum(binCounts)))
 
-    txy = tris[:, :, :2]
     tx0 = np.clip(((txy[:, :, 0].min(axis=1) - lo[0]) / binSize[0]).astype(np.int64), 0, nBins - 1)
     tx1 = np.clip(((txy[:, :, 0].max(axis=1) - lo[0]) / binSize[0]).astype(np.int64), 0, nBins - 1)
     rowsPerTri = tx1 - tx0 + 1
-    winding = np.zeros(len(pts), dtype=np.int64)
 
     # Process the triangles in chunks so that the (triangle, bin column) pairs stay bounded in memory
     rowChunk = max(maxPairs // 4, 1)
@@ -421,12 +419,11 @@ def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 
         chunk = np.arange(triStart, triEnd)
         triStart = triEnd
 
-        # Each (triangle, bin column) pair covers one contiguous run of the sorted points. The Y range of the run is
-        # the exact extent of the triangle clipped to that column strip, rather than the triangle's bounding box,
-        # so long thin triangles do not test every point inside their (mostly empty) bounding box.
+        # Each (triangle, bin column) pair covers one contiguous run of the sorted lines. The Y range of the run is
+        # the extent of the triangle clipped to that column strip, rather than the triangle's bounding box.
         pairTri = np.repeat(chunk, rowsPerTri[chunk])
         pairRow = _expandRanges(tx0[chunk], rowsPerTri[chunk])
-        # Widen each strip slightly so rounding in the bin assignment never drops a point on a strip boundary
+        # Widen each strip slightly so rounding in the bin assignment never drops a line on a strip boundary
         stripLo = lo[0] + pairRow * binSize[0] - 1e-9 * scale
         stripHi = stripLo + binSize[0] + 2e-9 * scale
 
@@ -478,11 +475,58 @@ def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 
             if not np.any(hit):
                 continue
             zHit = (w0[hit] * a[hit, 2] + w1[hit] * b[hit, 2] + w2[hit] * c[hit, 2]) / d[hit]
-            crossing = zHit > pts[p[hit], 2]
-            winding += np.bincount(p[hit][crossing], weights=np.sign(d[hit][crossing]),
-                                   minlength=len(pts)).astype(np.int64)
+            yield p[hit], zHit, np.sign(d[hit]).astype(np.int64)
 
+
+def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 4_000_000) -> np.ndarray:
+    """
+    Fast inside/outside test of points against a closed (watertight) mesh.
+
+    A vertical ray is cast upwards from every point and the signed crossings with the mesh are summed (a generalised
+    winding number along +Z). This is far quicker than :meth:`trimesh.Trimesh.contains` for the many thousands of
+    samples used when generating lattice supports, and is unaffected by degenerate triangles.
+
+    :param mesh: A closed mesh. The result is independent of the face winding orientation.
+    :param points: The (n, 3) query points
+    :param maxPairs: Upper bound on candidate triangle/point pairs evaluated per batch, to cap memory use
+    :return: A boolean array, :code:`True` for points inside the mesh
+    """
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    winding = np.zeros(len(pts), dtype=np.int64)
+    for p, z, sign in _iterVerticalHits(mesh, pts[:, :2], maxPairs):
+        above = z > pts[p, 2]
+        winding += np.bincount(p[above], weights=sign[above], minlength=len(pts)).astype(np.int64)
     return winding != 0
+
+
+def verticalIntervals(mesh: trimesh.Trimesh, xy: np.ndarray,
+                      maxPairs: int = 4_000_000) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Find where vertical lines lie inside a closed (watertight) mesh.
+
+    :param mesh: A closed mesh
+    :param xy: The (n, 2) line positions
+    :param maxPairs: Upper bound on candidate triangle/line pairs evaluated per batch, to cap memory use
+    :return: The line index of every interval and the (m, 2) ``[zLow, zHigh]`` intervals, ordered by line then height
+    """
+    xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    lines, heights = [], []
+    for p, z, _sign in _iterVerticalHits(mesh, xy, maxPairs):
+        lines.append(p)
+        heights.append(z)
+    if not lines:
+        return np.empty(0, dtype=np.int64), np.empty((0, 2))
+
+    lines = np.concatenate(lines)
+    heights = np.concatenate(heights)
+    order = np.lexsort((heights, lines))
+    lines, heights = lines[order], heights[order]
+
+    # Consecutive crossings along each line alternately enter and leave the closed mesh
+    rank = np.arange(len(lines)) - np.searchsorted(lines, lines, side='left')
+    entry = np.flatnonzero((rank % 2 == 0) & (np.r_[lines[1:], -1] == lines))
+    intervals = np.stack((heights[entry], heights[entry + 1]), axis=1)
+    return lines[entry], intervals
 
 
 def cylinderSegments(segments: np.ndarray, radius: float, sections: int = 8) -> Tuple[trimesh.Trimesh, np.ndarray]:

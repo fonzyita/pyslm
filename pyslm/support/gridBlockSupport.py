@@ -517,17 +517,8 @@ class GridBlockSupport(BlockSupportBase):
         lattice = self.generateSpaceFrame()
         logging.info('3D lattice completed in %.2fs (%d faces)',
                      perf_counter() - lattice_start, len(lattice.faces))
-        logging.info('\tGenerating support border')
-
-        if self.useSupportSkin:
-            skin_start = perf_counter()
-            boundaryRails = self.generateSupportBoundaryRails()
-            supportSkins = [boundaryRails] if len(boundaryRails.faces) > 0 else []
-            if not supportSkins:
-                logging.warning('No external perimeter rails could be derived for this support region')
-            logging.info('Support border completed in %.2fs', perf_counter() - skin_start)
-        else:
-            supportSkins = []
+        # The perimeter wall is part of the conformal lattice (see generateSpaceFrame)
+        supportSkins = []
 
         if self._mergeMesh:
             raise Exception('Currently performing a boolean merge between shell meshes is not available - please use the non-merged mesh')
@@ -1709,11 +1700,23 @@ class GridBlockSupport(BlockSupportBase):
         return trimesh.Trimesh(vertices=newVerts, faces=newFaces, face_attributes=faceAttr, process=False)
 
     def generateSpaceFrame(self) -> trimesh.Trimesh:
-        """Generate a body-centered-cubic lattice of real 3D struts.
+        """Generate a conformal body-centred-cubic (BCC) lattice of real 3D struts.
 
-        Candidate struts are retained only when interior samples lie within the
-        existing support volume. The support-region detection and its contact
-        boundaries are therefore kept separate from the lattice pattern.
+        Rather than clipping a fixed lattice against the support volume, which leaves disconnected strut fragments
+        wherever the volume's lower or upper surface cuts through a cell, the lattice is built from vertical pillars:
+
+        * Pillars stand on a grid of cell corners and cell centres. Each pillar runs through every interval of its
+          vertical line that lies inside the support volume, from the lower surface (build plate or part) to the
+          upper surface (the overhang), so every pillar is anchored at both ends. Nodes are placed on the regular
+          lattice levels between the two anchors; a level closer than a third of a cell to an anchor is merged into it.
+        * Neighbouring pillars (closer than 0.75 cells) are braced by diagonals from each node to the nearest node
+          below and above on the other pillar - the BCC diagonals in the interior of the lattice. Diagonals leaving
+          the support volume are discarded.
+        * When :attr:`useSupportSkin` is set, a perimeter wall of pillars is placed along the support boundary at
+          :attr:`supportBorderDistance` spacing and braced in the same way, so thin regions narrower than one cell are
+          still supported by a connected structure.
+
+        The diameter of every strut is :attr:`trussWidth`.
         """
         volume = self._supportVolume
         cell = float(self._latticeCellSize)
@@ -1721,65 +1724,182 @@ class GridBlockSupport(BlockSupportBase):
         if cell <= 0 or radius <= 0:
             raise ValueError('Lattice cell size and strut width must be positive')
 
-        bounds = np.asarray(volume.bounds, dtype=float)
-        low = np.floor(bounds[0] / cell).astype(int) - 1
-        high = np.ceil(bounds[1] / cell).astype(int) + 1
-        axes = [np.arange(low[i], high[i], dtype=int) for i in range(3)]
-        cells = np.stack(np.meshgrid(*axes, indexing='ij'), axis=-1).reshape(-1, 3)
-        if len(cells) == 0:
-            return trimesh.Trimesh()
-
-        corner_bits = np.array(
-            [[0, 0, 0], [0, 0, 1], [0, 1, 0], [0, 1, 1],
-             [1, 0, 0], [1, 0, 1], [1, 1, 0], [1, 1, 1]],
-            dtype=float,
-        )
-        origins = cells.astype(float) * cell
-        centers = origins + cell / 2.0
-        starts = np.repeat(centers, len(corner_bits), axis=0)
-        ends = (origins[:, None, :] + corner_bits[None, :, :] * cell).reshape(-1, 3)
-        segments = np.stack((starts, ends), axis=1)
-
-        # Check each beam at several points, in bounded batches to cap memory
-        # use for large support volumes.
-        fractions = np.array([0.001, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 0.999], dtype=float)
-        sample_points = (
-            segments[:, 0, None, :] * (1.0 - fractions[None, :, None])
-            + segments[:, 1, None, :] * fractions[None, :, None]
-        ).reshape(-1, 3)
-        inside = utils.pointsInsideMesh(volume, sample_points)
-        inside_by_segment = inside.reshape(-1, len(fractions))
-        clipped_segments = []
-        for segment, sample_mask in zip(segments, inside_by_segment):
-            # Keep each continuous interval that lies in the support volume.
-            # This preserves boundary struts instead of dropping every beam
-            # that crosses the irregular edge of a support region.
-            transitions = np.diff(np.r_[False, sample_mask, False].astype(np.int8))
-            run_starts = np.flatnonzero(transitions == 1)
-            run_ends = np.flatnonzero(transitions == -1)
-            for run_start, run_end in zip(run_starts, run_ends):
-                if run_end - run_start < 2:
-                    continue
-                t0 = 0.0 if run_start == 0 else fractions[run_start]
-                t1 = 1.0 if run_end == len(fractions) else fractions[run_end - 1]
-                if t1 - t0 <= 1e-4:
-                    continue
-                direction = segment[1] - segment[0]
-                clipped_segments.append((segment[0] + t0 * direction,
-                                         segment[0] + t1 * direction))
-        segments = np.asarray(clipped_segments, dtype=float).reshape(-1, 2, 3)
-
-        if len(segments) == 0:
+        columns, offsets, isPerimeter = self._latticeColumns(volume, cell, radius)
+        if len(columns) == 0:
             logging.warning('No BCC struts fit inside this support region')
             return trimesh.Trimesh()
 
-        lattice, face_segment = utils.cylinderSegments(segments, radius, sections=8)
-        lattice.face_attributes['order'] = face_segment.astype(float)
+        nodes, nodeColumn, vertical = self._latticePillars(volume, columns, offsets, cell, radius)
+        if len(vertical) == 0:
+            logging.warning('No BCC struts fit inside this support region: the gap below the overhang is at most '
+                            '%.3f mm, thinner than the strut radius (%.3f mm)',
+                            float(np.ptp(volume.bounds[:, 2])), radius)
+            return trimesh.Trimesh()
+
+        bracing = self._latticeBracing(volume, columns, nodes, nodeColumn, cell)
+        edges = np.vstack([vertical, bracing])
+
+        lattice, faceSegment = utils.cylinderSegments(nodes[edges], radius, sections=8)
+        lattice.face_attributes['order'] = faceSegment.astype(float)
         lattice.face_attributes['type'] = np.full(len(lattice.faces), GridMeshType.BOUNDARY, dtype=float)
 
-        logging.info('BCC lattice generated %d strut segments from %d candidates',
-                     len(segments), len(inside_by_segment))
+        logging.info('BCC lattice generated %d struts (%d pillar, %d bracing) on %d pillars, %d on the perimeter',
+                     len(edges), len(vertical), len(bracing), len(np.unique(nodeColumn)),
+                     int(isPerimeter[np.unique(nodeColumn)].sum()))
         return lattice
+
+    def _latticeColumns(self, volume: trimesh.Trimesh, cell: float,
+                        radius: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Positions of the lattice pillars with their lattice level offset and whether they form the perimeter wall.
+
+        The footprint of the support volume is rasterised from vertical-line intersections; a distance transform of
+        the raster gives both the interior pillars (at least 0.4 cells from the boundary) and the inset perimeter
+        contour followed by the perimeter wall.
+        """
+        from scipy import ndimage
+        import skimage.measure
+
+        bounds = np.asarray(volume.bounds, dtype=float)
+        extent = bounds[1, :2] - bounds[0, :2]
+        pitch = float(np.clip(cell / 20.0, 0.1, 0.25))
+        pitch = max(pitch, float(np.sqrt(np.prod(extent + 4 * pitch) / 4e6)))  # cap the raster at ~4M samples
+
+        origin = bounds[0, :2] - 2.0 * pitch
+        shape = np.ceil((extent + 4.0 * pitch) / pitch).astype(int) + 1
+        rx = origin[0] + np.arange(shape[0]) * pitch
+        ry = origin[1] + np.arange(shape[1]) * pitch
+        samples = np.stack(np.meshgrid(rx, ry, indexing='ij'), axis=-1).reshape(-1, 2)
+
+        lines, _ = utils.verticalIntervals(volume, samples)
+        inside = np.zeros(len(samples), dtype=bool)
+        inside[lines] = True
+        inside = inside.reshape(shape)
+        # Distance from each raster sample to the footprint boundary [mm]
+        boundaryDistance = ndimage.distance_transform_edt(inside) * pitch - 0.5 * pitch
+
+        def distanceAt(xy: np.ndarray) -> np.ndarray:
+            idx = np.rint((xy - origin) / pitch).astype(int)
+            valid = np.all((idx >= 0) & (idx < shape), axis=1)
+            result = np.full(len(xy), -np.inf)
+            result[valid] = boundaryDistance[idx[valid, 0], idx[valid, 1]]
+            return result
+
+        # Interior pillars on the BCC grid: cell corners and cell centres, offset by half a cell in height
+        low = np.floor(bounds[0, :2] / cell) - 1
+        high = np.ceil(bounds[1, :2] / cell) + 1
+        gx = np.arange(low[0], high[0] + 1) * cell
+        gy = np.arange(low[1], high[1] + 1) * cell
+        corners = np.stack(np.meshgrid(gx, gy, indexing='ij'), axis=-1).reshape(-1, 2)
+        grid = np.vstack([corners, corners + cell / 2.0])
+        gridOffset = np.r_[np.zeros(len(corners)), np.full(len(corners), cell / 2.0)]
+
+        clearance = 0.4 * cell if self.useSupportSkin else 0.0
+        keep = distanceAt(grid) >= max(clearance, 0.5 * pitch)
+        columns = [grid[keep]]
+        offsets = [gridOffset[keep]]
+        isPerimeter = [np.zeros(int(keep.sum()), dtype=bool)]
+
+        if self.useSupportSkin and boundaryDistance.max() > 0:
+            # Follow the boundary inset by 1.5 strut radii so the wall struts stay within the support volume. Regions
+            # thinner than that inset place the wall on their medial line instead.
+            level = min(1.5 * radius, 0.5 * float(boundaryDistance.max()))
+            padded = np.pad(boundaryDistance, 1, mode='constant', constant_values=-pitch)
+            spacing = max(float(self._supportBorderDistance), 0.5)
+            for contour in skimage.measure.find_contours(padded, level):
+                loop = origin + (contour - 1.0) * pitch
+                segLength = np.linalg.norm(np.diff(loop, axis=0), axis=1)
+                arc = np.r_[0.0, np.cumsum(segLength)]
+                length = arc[-1]
+                if length <= 1e-9:
+                    continue
+                count = max(int(np.ceil(length / spacing)), 1)
+                positions = np.linspace(0.0, length, count, endpoint=False)
+                points = np.stack([np.interp(positions, arc, loop[:, 0]),
+                                   np.interp(positions, arc, loop[:, 1])], axis=1)
+                columns.append(points)
+                # Alternate the level offset along the wall so neighbouring pillars are braced in a zig-zag
+                offsets.append((np.arange(count) % 2) * cell / 2.0)
+                isPerimeter.append(np.ones(count, dtype=bool))
+
+        return np.vstack(columns), np.concatenate(offsets), np.concatenate(isPerimeter)
+
+    @staticmethod
+    def _latticePillars(volume: trimesh.Trimesh, columns: np.ndarray, offsets: np.ndarray, cell: float,
+                        radius: float, snap: float = 1.0 / 3.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Nodes and vertical struts of the pillars, ordered by column and then by height."""
+        lines, intervals = utils.verticalIntervals(volume, columns)
+        # Intervals shorter than the strut radius come from lines grazing the volume boundary
+        valid = (intervals[:, 1] - intervals[:, 0]) >= radius
+        lines, intervals = lines[valid], intervals[valid]
+        if len(lines) == 0:
+            return np.empty((0, 3)), np.empty(0, dtype=np.int64), np.empty((0, 2), dtype=np.int64)
+
+        z0, z1 = intervals[:, 0], intervals[:, 1]
+        offset = offsets[lines]
+        m0 = np.ceil((z0 + snap * cell - offset) / cell)
+        m1 = np.floor((z1 - snap * cell - offset) / cell)
+        nodeCount = np.maximum(m1 - m0 + 1, 0).astype(np.int64) + 2  # lattice levels plus both anchors
+
+        nodeInterval = np.repeat(np.arange(len(lines)), nodeCount)
+        rank = np.arange(len(nodeInterval)) - np.repeat(np.cumsum(nodeCount) - nodeCount, nodeCount)
+        last = nodeCount[nodeInterval] - 1
+        z = np.where(rank == 0, z0[nodeInterval],
+                     np.where(rank == last, z1[nodeInterval],
+                              (m0[nodeInterval] + rank - 1) * cell + offset[nodeInterval]))
+
+        nodeColumn = lines[nodeInterval]
+        nodes = np.column_stack([columns[nodeColumn], z])
+        lower = np.flatnonzero(rank < last)
+        vertical = np.stack([lower, lower + 1], axis=1)
+        return nodes, nodeColumn, vertical
+
+    @staticmethod
+    def _latticeBracing(volume: trimesh.Trimesh, columns: np.ndarray, nodes: np.ndarray, nodeColumn: np.ndarray,
+                        cell: float) -> np.ndarray:
+        """Diagonal struts from every node to the nearest node below and above on each neighbouring pillar."""
+        from scipy.spatial import cKDTree
+
+        used = np.unique(nodeColumn)
+        pairs = cKDTree(columns[used]).query_pairs(r=0.75 * cell, output_type='ndarray')
+        if len(pairs) == 0:
+            return np.empty((0, 2), dtype=np.int64)
+        pairs = used[pairs]
+        pairs = np.vstack([pairs, pairs[:, ::-1]])  # brace from both ends
+
+        # Nodes are sorted by column then height, so a combined key is globally sorted
+        z = nodes[:, 2]
+        zMin = float(z.min())
+        span = float(np.ptp(z)) + 10.0 * cell
+        keys = nodeColumn * span + (z - zMin)
+        colStart = np.searchsorted(nodeColumn, pairs[:, 0], side='left')
+        colEnd = np.searchsorted(nodeColumn, pairs[:, 0], side='right')
+        count = colEnd - colStart
+        src = utils._expandRanges(colStart, count)
+        dstColumn = np.repeat(pairs[:, 1], count)
+        query = dstColumn * span + (z[src] - zMin)
+
+        window = 0.9 * cell
+        edges = []
+        below = np.searchsorted(keys, query, side='left') - 1
+        ok = (below >= 0)
+        ok[ok] = (nodeColumn[below[ok]] == dstColumn[ok]) & (z[src[ok]] - z[below[ok]] <= window)
+        edges.append(np.stack([src[ok], below[ok]], axis=1))
+        above = np.searchsorted(keys, query, side='right')
+        ok = above < len(keys)
+        ok[ok] = (nodeColumn[above[ok]] == dstColumn[ok]) & (z[above[ok]] - z[src[ok]] <= window)
+        edges.append(np.stack([src[ok], above[ok]], axis=1))
+
+        edges = np.unique(np.sort(np.vstack(edges), axis=1), axis=0)
+        edges = edges[np.abs(z[edges[:, 1]] - z[edges[:, 0]]) > 1e-9]
+        if len(edges) == 0:
+            return edges
+
+        # Discard braces that leave the support volume, e.g. where the part surface rises between two pillars
+        fractions = np.array([0.25, 0.5, 0.75])
+        samples = (nodes[edges[:, 0], None, :] * (1.0 - fractions)[None, :, None]
+                   + nodes[edges[:, 1], None, :] * fractions[None, :, None])
+        inside = utils.pointsInsideMesh(volume, samples.reshape(-1, 3)).reshape(-1, len(fractions))
+        return edges[inside.all(axis=1)]
 
     def generateSupportBoundaryRails(self) -> trimesh.Trimesh:
         """Build thin 3D rails from the real perimeter contours of the support.

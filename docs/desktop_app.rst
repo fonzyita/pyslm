@@ -49,6 +49,18 @@ or support settings clears the removed-region history. Selecting a generated
 region highlights it in the viewer; this helps inspect regions before removal
 but does not alter PySLM's generated geometry.
 
+The BCC lattice option builds a conformal lattice of vertical pillars. Each
+pillar runs from the lower surface (build plate or part) to the overhang and is
+braced to neighbouring pillars by BCC diagonals; diagonals that would leave the
+support volume are discarded. "Dimensione cella BCC" sets the lattice cell size
+and "Spessore asta" the strut diameter. "Genera bordo esterno a aste" adds a
+braced wall of pillars along the support boundary, spaced by "Passo aste
+perimetrali"; it also supports regions narrower than one cell. Very short
+pillars where the overhang sits on the part (or regions thinner than the strut
+radius) may remain unbraced, but every pillar is anchored at both ends. The
+"Denti superiori/inferiori" options apply only to the legacy grid-truss skin
+and have no effect on the BCC lattice.
+
 Orientation ranking uses PySLM's ``approximateSupportMomentArea`` estimate and
 uses projected overhang area and build height to break ties. PySLM documents
 this metric as an initial estimate; it does not account for support
