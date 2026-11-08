@@ -50,8 +50,8 @@ or support settings clears the removed-region history. Selecting a generated
 region highlights it in the viewer; this helps inspect regions before removal
 but does not alter PySLM's generated geometry.
 
-Every adjustable parameter has a "?" below it: hovering it explains what the
-parameter does. While supports are generated, the status bar shows the overall
+Every adjustable parameter has a "?" beside its name (one shared "?" for the
+orientation, cavity-screen and section groups): hovering it explains what it does. While supports are generated, the status bar shows the overall
 progress as a percentage.
 
 The "Sezione" controls above the 3D view cut the part and the supports with a
@@ -75,7 +75,7 @@ them) lighten the walls and can be disabled. "Margine pieno" is the solid band
 kept without holes below the upper teeth and above the base; very low regions
 may stay solid unless it is reduced. The boundary wall is perforated
 continuously around corners and curves, and
-"Frammentazione ogni" splits the walls at a fixed interval (0 disables it).
+"Frammentazione" splits the walls at a fixed interval (0 disables it).
 
 "Sollevamento piatto" raises the part above the build plate (default 3 mm).
 Without it, downward-facing surfaces at the bottom of the part rest on the

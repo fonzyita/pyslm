@@ -742,9 +742,14 @@ def test_every_adjustable_parameter_has_a_help_badge(monkeypatch: pytest.MonkeyP
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     window = MainWindow()
 
-    # Every help text is used, and every spin box and check box of the side panels has a tooltip
-    used = {key.split("_")[0] if key.startswith("rotation_") else key for key in window.help_badges}
-    assert set(HELP) <= used
+    # One badge per help text: groups (orientation, cavity screen, section) share a single badge,
+    # and the model brightness has none
+    assert set(window.help_badges) == set(HELP)
+    assert "brightness" not in window.help_badges
+    group_tooltip = window.help_badges["orientation"].toolTip()
+    assert all(spin.toolTip() == group_tooltip for spin in [*window.rotation_inputs, window.lift_input])
+    assert window.section_flip.toolTip() == window.help_badges["section"].toolTip()
+    # Every spin box and check box of the side panels still explains itself on hover
     controls = [
         widget
         for panel in (window.left_panel, window.right_panel)

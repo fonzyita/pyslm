@@ -151,18 +151,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mesh_diagnostics_button = QtWidgets.QPushButton("Diagnostica geometria")
         self.mesh_diagnostics_button.clicked.connect(self._analyze_mesh)
         left_layout.addWidget(self.mesh_diagnostics_button)
+        self.void_pitch_input = self._double_input(1.0, 0.1, 20.0, 2)
+        self.probe_diameter_input = self._double_input(0.5, 0.1, 20.0, 2)
         void_pitch_row = QtWidgets.QHBoxLayout()
         void_pitch_row.addWidget(QtWidgets.QLabel("Passo voxel (mm)"))
-        self.void_pitch_input = self._double_input(1.0, 0.1, 20.0, 2)
+        # One explanation for both settings of the cavity screen
+        void_pitch_row.addWidget(
+            self._help_badge("void_screen", self.void_pitch_input, self.probe_diameter_input)
+        )
         void_pitch_row.addWidget(self.void_pitch_input)
         left_layout.addLayout(void_pitch_row)
-        self._add_help(left_layout, "void_pitch", self.void_pitch_input)
         probe_diameter_row = QtWidgets.QHBoxLayout()
         probe_diameter_row.addWidget(QtWidgets.QLabel("Diametro sonda (mm)"))
-        self.probe_diameter_input = self._double_input(0.5, 0.1, 20.0, 2)
         probe_diameter_row.addWidget(self.probe_diameter_input)
         left_layout.addLayout(probe_diameter_row)
-        self._add_help(left_layout, "probe_diameter", self.probe_diameter_input)
         self.void_pitch_input.valueChanged.connect(
             self._void_screen_settings_changed
         )
@@ -188,12 +190,12 @@ class MainWindow(QtWidgets.QMainWindow):
         density_row.addWidget(QtWidgets.QLabel("Densità (g/cm³)"))
         self.density_input = self._double_input(7.85, 0.001, 30.0, 3)
         self.density_input.valueChanged.connect(self._update_metrics)
+        density_row.addWidget(self._help_badge("density", self.density_input))
         density_row.addWidget(self.density_input)
         left_layout.addLayout(density_row)
-        self._add_help(left_layout, "density", self.density_input)
         left_layout.addWidget(self.mass_label)
 
-        left_layout.addWidget(self._section_title("ORIENTAMENTO · GRADI"))
+        orientation_title_index = left_layout.count()
         self.rotation_inputs = []
         for axis in ("X", "Y", "Z"):
             row = QtWidgets.QHBoxLayout()
@@ -204,8 +206,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.rotation_inputs.append(spin)
             row.addWidget(spin)
             left_layout.addLayout(row)
-            badge = self._add_help(left_layout, "rotation", spin)
-            self.help_badges[f"rotation_{axis.lower()}"] = badge
         lift_row = QtWidgets.QHBoxLayout()
         lift_row.addWidget(QtWidgets.QLabel("Sollevamento piatto (mm)"))
         self.lift_input = self._double_input(3.0, 0.0, 50.0, 2)
@@ -213,7 +213,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lift_input.valueChanged.connect(self._apply_build_lift)
         lift_row.addWidget(self.lift_input)
         left_layout.addLayout(lift_row)
-        self._add_help(left_layout, "lift", self.lift_input)
+        # One explanation for the whole group, beside its title
+        left_layout.insertWidget(
+            orientation_title_index,
+            self._title_with_help(
+                "ORIENTAMENTO · GRADI", "orientation", *self.rotation_inputs, self.lift_input
+            ),
+        )
         self.compare_orientations_button = QtWidgets.QPushButton(
             "Confronta 24 orientamenti"
         )
@@ -254,7 +260,6 @@ class MainWindow(QtWidgets.QMainWindow):
         brightness_row.addWidget(self.brightness_slider, 1)
         brightness_row.addWidget(self.brightness_value_label)
         viewer_layout.addLayout(brightness_row)
-        self._add_help(viewer_layout, "brightness", self.brightness_slider)
 
         # Section plane moved through the part and supports
         self.section_check = QtWidgets.QCheckBox("Sezione")
@@ -267,28 +272,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.section_flip = QtWidgets.QCheckBox("Inverti lato")
         self.section_label = QtWidgets.QLabel("—")
         self.section_label.setMinimumWidth(110)
-        # Controls on the first row, each "?" directly below its control on the second row
-        section_grid = QtWidgets.QGridLayout()
-        section_grid.setHorizontalSpacing(8)
-        section_grid.setVerticalSpacing(2)
-        section_grid.setColumnStretch(2, 1)
-        columns = (
-            (self.section_check, "section"),
-            (self.section_axis, "section_axis"),
-            (self.section_slider, "section_position"),
-            (self.section_label, None),
-            (self.section_flip, "section_flip"),
+        section_row = QtWidgets.QHBoxLayout()
+        section_row.setSpacing(8)
+        section_row.addWidget(self.section_check)
+        # One explanation for the whole section group (axis, slider and side)
+        section_row.addWidget(
+            self._help_badge(
+                "section", self.section_check, self.section_axis, self.section_slider, self.section_flip
+            )
         )
-        for column, (widget, help_key) in enumerate(columns):
-            section_grid.addWidget(widget, 0, column)
-            if help_key is None:
-                continue
-            text = HELP[help_key]
-            badge = _HelpBadge(text)
-            widget.setToolTip(_tooltip_html(text))
-            self.help_badges[help_key] = badge
-            section_grid.addWidget(badge, 1, column, QtCore.Qt.AlignLeft)
-        viewer_layout.addLayout(section_grid)
+        section_row.addWidget(self.section_axis)
+        section_row.addWidget(self.section_slider, 1)
+        section_row.addWidget(self.section_label)
+        section_row.addWidget(self.section_flip)
+        viewer_layout.addLayout(section_row)
         self.section_check.toggled.connect(self._update_section)
         self.section_axis.currentIndexChanged.connect(self._update_section)
         self.section_slider.valueChanged.connect(self._update_section)
@@ -304,11 +301,12 @@ class MainWindow(QtWidgets.QMainWindow):
         right_layout.setContentsMargins(16, 16, 16, 16)
         right_layout.setSpacing(7)
         right_layout.addWidget(self._section_title("ANALISI OVERHANG"))
-        right_layout.addWidget(QtWidgets.QLabel("Angolo limite (°)"))
         self.angle_input = self._double_input(45.0, 1.0, 89.0, 1)
+        right_layout.addLayout(
+            self._labelled_with_help("Angolo limite (°)", "overhang_angle", self.angle_input)
+        )
         self.angle_input.valueChanged.connect(self._support_settings_changed)
         right_layout.addWidget(self.angle_input)
-        self._add_help(right_layout, "overhang_angle", self.angle_input)
         self.overhang_label = self._value_label("Superfici critiche: —")
         self.overhang_label.setWordWrap(True)
         right_layout.addWidget(self.overhang_label)
@@ -348,14 +346,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "perforation_web": self._add_parameter(wall_layout, "Ponte tra fori (mm)", 1.0, 0.1, 10.0, 2, help_key="perforation_web"),
             "solid_margin": self._add_parameter(wall_layout, "Margine pieno (mm)", 1.0, 0.0, 10.0, 2, help_key="solid_margin"),
             "fragmentation": self._add_parameter(
-                wall_layout, "Frammentazione ogni (mm, 0 = no)", 0.0, 0.0, 100.0, 1, help_key="fragmentation"
+                wall_layout, "Frammentazione (mm, 0 = no)", 0.0, 0.0, 100.0, 1, help_key="fragmentation"
             ),
         })
         self.perforation = QtWidgets.QCheckBox("Perforazioni a rombo")
         self.perforation.setChecked(True)
         self.perforation.stateChanged.connect(self._support_settings_changed)
-        wall_layout.addWidget(self.perforation)
-        self._add_help(wall_layout, "perforation", self.perforation)
+        wall_layout.addLayout(self._checkbox_with_help(self.perforation, "perforation"))
         right_layout.addWidget(self.wall_panel)
 
         # Parameters of the BCC lattice
@@ -381,8 +378,7 @@ class MainWindow(QtWidgets.QMainWindow):
             (self.lower_teeth, "lower_teeth"),
         ):
             checkbox.stateChanged.connect(self._support_settings_changed)
-            right_layout.addWidget(checkbox)
-            self._add_help(right_layout, help_key, checkbox)
+            right_layout.addLayout(self._checkbox_with_help(checkbox, help_key))
         self.structure_controls = [self.use_skin, self.upper_teeth, self.lower_teeth]
 
         self.generate_button = QtWidgets.QPushButton("Genera supporti PySLM")
@@ -420,7 +416,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         layout.addWidget(self._scrollable(self.left_panel, 290, 350))
         layout.addWidget(viewer_panel, 1)
-        layout.addWidget(self._scrollable(self.right_panel, 300, 370))
+        layout.addWidget(self._scrollable(self.right_panel, 320, 390))
         self.setCentralWidget(outer)
 
     def _build_diagnostics(self) -> None:
@@ -1141,6 +1137,8 @@ class MainWindow(QtWidgets.QMainWindow):
         spin.setRange(minimum, maximum)
         spin.setDecimals(decimals)
         spin.setValue(value)
+        # A compact fixed width leaves the rest of the row to the label and its "?"
+        spin.setFixedWidth(88)
         return spin
 
     def _add_parameter(
@@ -1157,27 +1155,47 @@ class MainWindow(QtWidgets.QMainWindow):
         row.addWidget(QtWidgets.QLabel(title))
         spin = self._double_input(value, minimum, maximum, decimals)
         spin.valueChanged.connect(self._support_settings_changed)
+        if help_key is not None:
+            row.addWidget(self._help_badge(help_key, spin))
         row.addWidget(spin)
         layout.addLayout(row)
-        if help_key is not None:
-            self._add_help(layout, help_key, spin)
         return spin
 
-    def _add_help(
-        self, layout: QtWidgets.QBoxLayout, help_key: str, *targets: QtWidgets.QWidget
-    ) -> _HelpBadge:
-        """Add a "?" badge on its own row below a parameter; its controls show the same tooltip."""
+    def _help_badge(self, help_key: str, *targets: QtWidgets.QWidget) -> "_HelpBadge":
+        """A "?" explaining ``help_key``; the controls it describes show the same tooltip."""
         text = HELP[help_key]
         badge = _HelpBadge(text)
-        row = QtWidgets.QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 2)
-        row.addWidget(badge)
-        row.addStretch(1)
-        layout.addLayout(row)
         for target in targets:
             target.setToolTip(_tooltip_html(text))
         self.help_badges[help_key] = badge
         return badge
+
+    def _labelled_with_help(self, text: str, help_key: str, *targets: QtWidgets.QWidget) -> QtWidgets.QHBoxLayout:
+        """A label followed by its "?" badge."""
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(QtWidgets.QLabel(text))
+        row.addWidget(self._help_badge(help_key, *targets))
+        row.addStretch(1)
+        return row
+
+    def _checkbox_with_help(self, checkbox: QtWidgets.QCheckBox, help_key: str) -> QtWidgets.QHBoxLayout:
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(checkbox)
+        row.addWidget(self._help_badge(help_key, checkbox))
+        row.addStretch(1)
+        return row
+
+    def _title_with_help(self, text: str, help_key: str, *targets: QtWidgets.QWidget) -> QtWidgets.QWidget:
+        """A section title with one "?" that explains the whole group."""
+        container = QtWidgets.QWidget()
+        row = QtWidgets.QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(self._section_title(text), 1)
+        row.addWidget(self._help_badge(help_key, *targets))
+        return container
 
     @staticmethod
     def _scrollable(panel: QtWidgets.QWidget, minimum: int, maximum: int) -> QtWidgets.QScrollArea:

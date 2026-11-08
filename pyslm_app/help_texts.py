@@ -2,48 +2,29 @@
 
 HELP = {
     # --- Componente -------------------------------------------------------------------------------------------------
-    "void_pitch": (
-        "Dimensione dei voxel (cubetti) usati dallo «Screen cavità voxel» per cercare volumi chiusi "
-        "dentro il pezzo. Valori piccoli trovano cavità più piccole ma il calcolo è più lento e usa "
-        "più memoria; valori grandi sono rapidi ma possono non vedere cavità sottili."
-    ),
-    "probe_diameter": (
-        "Diametro di una sfera immaginaria usata dallo screen cavità per stimare se i passaggi verso "
-        "l'esterno sono abbastanza larghi. I passaggi più stretti di questo diametro vengono segnalati. "
+    "void_screen": (
+        "Impostazioni dello «Screen cavità voxel», che cerca volumi chiusi dentro il pezzo.\n"
+        "• Passo voxel: dimensione dei cubetti di analisi; più piccolo trova cavità più sottili ma è più lento.\n"
+        "• Diametro sonda: sfera usata per segnalare i passaggi verso l'esterno più stretti di questo diametro.\n"
         "È una stima geometrica: non verifica l'uscita reale della polvere."
     ),
     "density": (
         "Densità del materiale in g/cm³, usata solo per stimare il peso del pezzo dal suo volume. "
         "7,85 è l'acciaio; ad esempio alluminio ≈ 2,7, titanio ≈ 4,4, Inconel ≈ 8,2."
     ),
-    "rotation": (
-        "Rotazione del pezzo attorno a questo asse, in gradi. Cambiare l'orientamento cambia le "
-        "superfici a sbalzo, quindi i supporti generati vengono annullati e vanno rigenerati."
-    ),
-    "lift": (
-        "Distanza tra il piatto di costruzione e il punto più basso del pezzo. Lo spazio permette di "
-        "supportare anche le superfici inferiori del pezzo (come fanno i software SLM, tipicamente "
-        "3-5 mm). Con 0 il pezzo appoggia sul piatto e le facce inferiori non ricevono supporti."
+    "orientation": (
+        "Posizione del pezzo sul piatto di costruzione.\n"
+        "• Asse X / Y / Z: rotazione del pezzo attorno a quell'asse, in gradi.\n"
+        "• Sollevamento piatto: distanza tra il piatto e il punto più basso del pezzo (tipicamente "
+        "3-5 mm), così anche le facce inferiori ricevono supporti; con 0 il pezzo appoggia sul piatto.\n"
+        "Ogni modifica annulla i supporti generati, che vanno rigenerati."
     ),
     "section": (
-        "Attiva il piano di sezione: taglia il pezzo e i supporti e mostra la superficie di taglio "
-        "piena e colorata (rosso mattone per il pezzo, azzurro scuro per i supporti), così si vedono "
-        "spessori, cavità interne e contatti dei supporti. Cambia solo la visualizzazione."
-    ),
-    "section_axis": (
-        "Direzione del piano di sezione. Asse Z: piano orizzontale, si scorre per strati come durante "
-        "la stampa. Assi X e Y: piani verticali, mostrano l'interno di lato."
-    ),
-    "section_position": (
-        "Sposta il piano di sezione attraverso il pezzo e i supporti, dal minimo al massimo lungo "
-        "l'asse scelto. La quota del piano è indicata a destra dello slider."
-    ),
-    "section_flip": (
-        "Sceglie quale metà nascondere: normalmente si nasconde la parte oltre il piano (sopra, per "
-        "l'asse Z); attivandolo si nasconde l'altra metà."
-    ),
-    "brightness": (
-        "Luminosità del modello nella vista 3D. Cambia solo la visualizzazione, non la geometria."
+        "Piano di sezione: taglia pezzo e supporti per vederne l'interno; la faccia di taglio appare "
+        "piena (rosso mattone il pezzo, azzurro scuro i supporti). Cambia solo la visualizzazione.\n"
+        "• Asse: Z taglia in orizzontale (per strati), X e Y in verticale.\n"
+        "• Slider: sposta il piano; la sua quota è indicata accanto.\n"
+        "• Inverti lato: nasconde l'altra metà."
     ),
     # --- Analisi overhang ------------------------------------------------------------------------------------------
     "overhang_angle": (
