@@ -333,14 +333,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.support_type.addItem("Volume a blocco", "block")
         self.support_type.currentIndexChanged.connect(self._support_type_changed)
         right_layout.addWidget(self.support_type)
-        self.support_heading = self._section_title("PARAMETRI BLOCCO A PARETI")
+        # Collapsible parameter group: the header arrow opens and closes it to save space
+        self.support_heading = QtWidgets.QToolButton()
+        self.support_heading.setObjectName("collapseHeader")
+        self.support_heading.setText("PARAMETRI BLOCCO A PARETI")
+        self.support_heading.setCheckable(True)
+        self.support_heading.setChecked(False)
+        self.support_heading.setArrowType(QtCore.Qt.RightArrow)
+        self.support_heading.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.support_heading.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self.support_heading.setToolTip("Clicca per mostrare o nascondere i parametri dei supporti.")
         right_layout.addWidget(self.support_heading)
+        self.support_params_panel = QtWidgets.QWidget()
+        params_layout = QtWidgets.QVBoxLayout(self.support_params_panel)
+        params_layout.setContentsMargins(0, 0, 0, 0)
+        params_layout.setSpacing(7)
+        right_layout.addWidget(self.support_params_panel)
+        self.support_params_panel.setVisible(False)
+        self.support_heading.toggled.connect(self._toggle_support_parameters)
         self.support_inputs = {
-            "ray": self._add_parameter(right_layout, "Risoluzione proiezione (mm)", 0.2, 0.01, 2.0, 2, help_key="ray"),
-            "outer_gap": self._add_parameter(right_layout, "Offset esterno (mm)", 0.5, 0.0, 10.0, 2, help_key="outer_gap"),
-            "inner_gap": self._add_parameter(right_layout, "Offset interno (mm)", 0.2, 0.0, 10.0, 2, help_key="inner_gap"),
-            "simplify": self._add_parameter(right_layout, "Semplificazione contorno (mm)", 0.5, 0.0, 10.0, 2, help_key="simplify"),
-            "area": self._add_parameter(right_layout, "Area minima (mm²)", 1.0, 0.0, 1000.0, 2, help_key="area"),
+            "ray": self._add_parameter(params_layout, "Risoluzione proiezione (mm)", 0.2, 0.01, 2.0, 2, help_key="ray"),
+            "outer_gap": self._add_parameter(params_layout, "Offset esterno (mm)", 0.5, 0.0, 10.0, 2, help_key="outer_gap"),
+            "inner_gap": self._add_parameter(params_layout, "Offset interno (mm)", 0.2, 0.0, 10.0, 2, help_key="inner_gap"),
+            "simplify": self._add_parameter(params_layout, "Semplificazione contorno (mm)", 0.5, 0.0, 10.0, 2, help_key="simplify"),
+            "area": self._add_parameter(params_layout, "Area minima (mm²)", 1.0, 0.0, 1000.0, 2, help_key="area"),
         }
         # Parameters of the SLM-style wall supports
         self.wall_panel = QtWidgets.QWidget()
@@ -365,7 +381,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.perforation.setChecked(True)
         self.perforation.stateChanged.connect(self._support_settings_changed)
         wall_layout.addLayout(self._checkbox_with_help(self.perforation, "perforation"))
-        right_layout.addWidget(self.wall_panel)
+        params_layout.addWidget(self.wall_panel)
 
         # Parameters of the BCC lattice
         self.lattice_panel = QtWidgets.QWidget()
@@ -377,7 +393,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "cell_size": self._add_parameter(lattice_layout, "Dimensione cella BCC (mm)", 5.0, 2.0, 20.0, 2, help_key="cell_size"),
             "border": self._add_parameter(lattice_layout, "Passo aste perimetrali (mm)", 3.0, 0.5, 20.0, 2, help_key="border"),
         })
-        right_layout.addWidget(self.lattice_panel)
+        params_layout.addWidget(self.lattice_panel)
         self.use_skin = QtWidgets.QCheckBox("Bordo esterno")
         self.use_skin.setChecked(True)
         self.upper_teeth = QtWidgets.QCheckBox("Denti superiori")
@@ -390,7 +406,7 @@ class MainWindow(QtWidgets.QMainWindow):
             (self.lower_teeth, "lower_teeth"),
         ):
             checkbox.stateChanged.connect(self._support_settings_changed)
-            right_layout.addLayout(self._checkbox_with_help(checkbox, help_key))
+            params_layout.addLayout(self._checkbox_with_help(checkbox, help_key))
         self.structure_controls = [self.use_skin, self.upper_teeth, self.lower_teeth]
 
         self.generate_button = QtWidgets.QPushButton("Genera supporti PySLM")
@@ -467,6 +483,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QPushButton#primaryButton:hover { background: #0a9589; }
             QFrame#sidePanel { background: #1a2129; border: 1px solid #2a3541; border-radius: 8px; }
             QScrollArea#sideScroll { background: transparent; border: 0; }
+            QToolButton#collapseHeader {
+                background: #202933; color: #9fb0c0; border: 1px solid #2a3541; border-radius: 4px;
+                font-weight: 700; letter-spacing: 1px; text-align: left; padding: 5px 6px;
+            }
+            QToolButton#collapseHeader:hover { background: #283340; color: #e6ebf0; }
+            QToolButton#collapseHeader:checked { color: #e6ebf0; }
             QScrollBar:vertical { background: #161c23; width: 10px; margin: 0; border: 0; }
             QScrollBar::handle:vertical { background: #34414f; border-radius: 4px; min-height: 30px; }
             QScrollBar::handle:vertical:hover { background: #4b6b8a; }
@@ -995,6 +1017,10 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
         self._run_action("Ripristino regione supporto", restore)
+
+    def _toggle_support_parameters(self, expanded: bool) -> None:
+        self.support_heading.setArrowType(QtCore.Qt.DownArrow if expanded else QtCore.Qt.RightArrow)
+        self.support_params_panel.setVisible(expanded)
 
     def _support_type_changed(self, _index: Optional[int] = None) -> None:
         support_type = self.support_type.currentData()

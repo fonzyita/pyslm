@@ -102,7 +102,7 @@ class MeshView(gl.GLViewWidget):
 
     _PART_COLOR = (0.91, 0.86, 0.73, 1.0)
     _OVERHANG_COLOR = (0.94, 0.25, 0.16, 1.0)
-    _SUPPORT_COLOR = (0.58, 0.80, 0.96, 1.0)  # light sky blue
+    _SUPPORT_COLOR = (0.48, 0.66, 0.80, 1.0)  # matte light blue
     _SELECTED_SUPPORT_COLOR = (0.16, 0.66, 1.0, 1.0)  # intense bright blue
     _OVERHANG_DISPLAY_OFFSET = 0.03
 

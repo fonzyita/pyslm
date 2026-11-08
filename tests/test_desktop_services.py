@@ -874,3 +874,35 @@ def test_material_menu_sets_an_editable_density(monkeypatch: pytest.MonkeyPatch)
     assert window.material_input.currentText() == CUSTOM_MATERIAL
     assert window.density_input.value() == pytest.approx(19.0)
     window.close()
+
+
+def test_support_parameters_collapse_and_expand(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PyQt5")
+    pytest.importorskip("pyqtgraph")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5 import QtCore, QtWidgets
+
+    from pyslm_app.main import MainWindow
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    # Collapsed by default to save space; the generate button stays visible
+    assert not window.support_heading.isChecked()
+    assert not window.support_params_panel.isVisible()
+    assert window.support_heading.arrowType() == QtCore.Qt.RightArrow
+    assert window.generate_button.isVisible()
+
+    window.support_heading.click()
+    assert window.support_params_panel.isVisible()
+    assert window.support_heading.arrowType() == QtCore.Qt.DownArrow
+    assert window.support_inputs["wall_spacing"].isVisible()
+
+    # The parameters keep their values while hidden and are still used for generation
+    window.support_inputs["wall_spacing"].setValue(1.5)
+    window.support_heading.click()
+    assert not window.support_params_panel.isVisible()
+    assert window._wall_parameters().hatchSpacing == pytest.approx(1.5)
+    window.close()
