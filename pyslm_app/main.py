@@ -7,10 +7,32 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 
+from .help_texts import HELP
 from .services import ModelSession, OrientationCandidate
 from .viewer import MeshView
+
+
+class _HelpBadge(QtWidgets.QLabel):
+    """A small "?" that shows its explanation as soon as the mouse is over it."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__("?")
+        self.setObjectName("helpBadge")
+        self.setFixedSize(16, 16)
+        self.setAlignment(QtCore.Qt.AlignCenter)
+        self.setCursor(QtCore.Qt.WhatsThisCursor)
+        self.setToolTip(_tooltip_html(text))
+
+    def enterEvent(self, event: Any) -> None:
+        QtWidgets.QToolTip.showText(QtGui.QCursor.pos(), self.toolTip(), self)
+        super().enterEvent(event)
+
+
+def _tooltip_html(text: str) -> str:
+    # Rich text lets Qt wrap long explanations instead of showing one very long line
+    return f"<p style='white-space: pre-wrap; max-width: 320px;'>{text}</p>"
 
 
 class _SupportGeometryWorker(QtCore.QObject):
@@ -54,6 +76,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.orientation_candidates: List[OrientationCandidate] = []
         self._support_thread: Optional[QtCore.QThread] = None
         self._support_worker: Optional["_SupportGeometryWorker"] = None
+        self.help_badges: dict = {}
         self.setWindowTitle("PySLM | Metal AM Preparation")
         self.resize(1440, 900)
         self._build_ui()
@@ -87,11 +110,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.left_panel = QtWidgets.QFrame()
         self.left_panel.setObjectName("sidePanel")
-        self.left_panel.setMinimumWidth(270)
-        self.left_panel.setMaximumWidth(330)
         left_layout = QtWidgets.QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(16, 16, 16, 16)
-        left_layout.setSpacing(12)
+        left_layout.setSpacing(7)
 
         left_layout.addWidget(self._section_title("COMPONENTE"))
         self.import_button = QtWidgets.QPushButton("Apri file STL")
@@ -108,11 +129,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.void_pitch_input = self._double_input(1.0, 0.1, 20.0, 2)
         void_pitch_row.addWidget(self.void_pitch_input)
         left_layout.addLayout(void_pitch_row)
+        self._add_help(left_layout, "void_pitch", self.void_pitch_input)
         probe_diameter_row = QtWidgets.QHBoxLayout()
         probe_diameter_row.addWidget(QtWidgets.QLabel("Diametro sonda (mm)"))
         self.probe_diameter_input = self._double_input(0.5, 0.1, 20.0, 2)
         probe_diameter_row.addWidget(self.probe_diameter_input)
         left_layout.addLayout(probe_diameter_row)
+        self._add_help(left_layout, "probe_diameter", self.probe_diameter_input)
         self.void_pitch_input.valueChanged.connect(
             self._void_screen_settings_changed
         )
@@ -140,6 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.density_input.valueChanged.connect(self._update_metrics)
         density_row.addWidget(self.density_input)
         left_layout.addLayout(density_row)
+        self._add_help(left_layout, "density", self.density_input)
         left_layout.addWidget(self.mass_label)
 
         left_layout.addWidget(self._section_title("ORIENTAMENTO · GRADI"))
@@ -153,17 +177,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self.rotation_inputs.append(spin)
             row.addWidget(spin)
             left_layout.addLayout(row)
+            badge = self._add_help(left_layout, "rotation", spin)
+            self.help_badges[f"rotation_{axis.lower()}"] = badge
         lift_row = QtWidgets.QHBoxLayout()
         lift_row.addWidget(QtWidgets.QLabel("Sollevamento piatto (mm)"))
         self.lift_input = self._double_input(3.0, 0.0, 50.0, 2)
         self.lift_input.setSingleStep(0.5)
-        self.lift_input.setToolTip(
-            "Distanza tra il piatto e il punto più basso del pezzo. Lo spazio "
-            "permette di supportare anche le superfici inferiori del pezzo."
-        )
         self.lift_input.valueChanged.connect(self._apply_build_lift)
         lift_row.addWidget(self.lift_input)
         left_layout.addLayout(lift_row)
+        self._add_help(left_layout, "lift", self.lift_input)
         self.compare_orientations_button = QtWidgets.QPushButton(
             "Confronta 24 orientamenti"
         )
@@ -199,30 +222,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.brightness_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.brightness_slider.setRange(0, 100)
         self.brightness_slider.setValue(50)
-        self.brightness_slider.setToolTip(
-            "50% mantiene la luminosità attuale; trascina per schiarire o scurire il modello."
-        )
         self.brightness_value_label = QtWidgets.QLabel("50%")
         self.brightness_value_label.setMinimumWidth(36)
         brightness_row.addWidget(self.brightness_slider, 1)
         brightness_row.addWidget(self.brightness_value_label)
         viewer_layout.addLayout(brightness_row)
+        self._add_help(viewer_layout, "brightness", self.brightness_slider)
         self.viewer = MeshView()
         self.brightness_slider.valueChanged.connect(self._set_viewer_brightness)
         viewer_layout.addWidget(self.viewer, 1)
 
         self.right_panel = QtWidgets.QFrame()
         self.right_panel.setObjectName("sidePanel")
-        self.right_panel.setMinimumWidth(280)
-        self.right_panel.setMaximumWidth(340)
         right_layout = QtWidgets.QVBoxLayout(self.right_panel)
         right_layout.setContentsMargins(16, 16, 16, 16)
-        right_layout.setSpacing(11)
+        right_layout.setSpacing(7)
         right_layout.addWidget(self._section_title("ANALISI OVERHANG"))
         right_layout.addWidget(QtWidgets.QLabel("Angolo limite (°)"))
         self.angle_input = self._double_input(45.0, 1.0, 89.0, 1)
         self.angle_input.valueChanged.connect(self._support_settings_changed)
         right_layout.addWidget(self.angle_input)
+        self._add_help(right_layout, "overhang_angle", self.angle_input)
         self.overhang_label = self._value_label("Superfici critiche: —")
         self.overhang_label.setWordWrap(True)
         right_layout.addWidget(self.overhang_label)
@@ -240,76 +260,63 @@ class MainWindow(QtWidgets.QMainWindow):
         self.support_heading = self._section_title("PARAMETRI BLOCCO A PARETI")
         right_layout.addWidget(self.support_heading)
         self.support_inputs = {
-            "ray": self._add_parameter(right_layout, "Risoluzione proiezione (mm)", 0.2, 0.01, 2.0, 2),
-            "outer_gap": self._add_parameter(right_layout, "Offset esterno (mm)", 0.5, 0.0, 10.0, 2),
-            "inner_gap": self._add_parameter(right_layout, "Offset interno (mm)", 0.2, 0.0, 10.0, 2),
-            "simplify": self._add_parameter(right_layout, "Semplificazione contorno (mm)", 0.5, 0.0, 10.0, 2),
-            "area": self._add_parameter(right_layout, "Area minima (mm²)", 1.0, 0.0, 1000.0, 2),
+            "ray": self._add_parameter(right_layout, "Risoluzione proiezione (mm)", 0.2, 0.01, 2.0, 2, help_key="ray"),
+            "outer_gap": self._add_parameter(right_layout, "Offset esterno (mm)", 0.5, 0.0, 10.0, 2, help_key="outer_gap"),
+            "inner_gap": self._add_parameter(right_layout, "Offset interno (mm)", 0.2, 0.0, 10.0, 2, help_key="inner_gap"),
+            "simplify": self._add_parameter(right_layout, "Semplificazione contorno (mm)", 0.5, 0.0, 10.0, 2, help_key="simplify"),
+            "area": self._add_parameter(right_layout, "Area minima (mm²)", 1.0, 0.0, 1000.0, 2, help_key="area"),
         }
         # Parameters of the SLM-style wall supports
         self.wall_panel = QtWidgets.QWidget()
         wall_layout = QtWidgets.QVBoxLayout(self.wall_panel)
         wall_layout.setContentsMargins(0, 0, 0, 0)
+        wall_layout.setSpacing(7)
         self.support_inputs.update({
-            "wall_spacing": self._add_parameter(wall_layout, "Passo pareti (mm)", 2.5, 0.5, 20.0, 2),
-            "wall_thickness": self._add_parameter(wall_layout, "Spessore parete (mm)", 0.3, 0.05, 5.0, 2),
-            "teeth_height": self._add_parameter(wall_layout, "Altezza denti (mm)", 0.8, 0.1, 5.0, 2),
-            "teeth_contact": self._add_parameter(wall_layout, "Contatto denti (mm)", 0.3, 0.05, 5.0, 2),
-            "teeth_base": self._add_parameter(wall_layout, "Base denti (mm)", 1.0, 0.1, 10.0, 2),
-            "teeth_penetration": self._add_parameter(wall_layout, "Penetrazione denti (mm)", 0.1, 0.0, 2.0, 2),
-            "perforation_size": self._add_parameter(wall_layout, "Dimensione fori (mm)", 2.0, 0.2, 20.0, 2),
-            "perforation_web": self._add_parameter(wall_layout, "Ponte tra fori (mm)", 1.0, 0.1, 10.0, 2),
-            "solid_margin": self._add_parameter(wall_layout, "Margine pieno (mm)", 1.0, 0.0, 10.0, 2),
+            "wall_spacing": self._add_parameter(wall_layout, "Passo pareti (mm)", 2.5, 0.5, 20.0, 2, help_key="wall_spacing"),
+            "wall_thickness": self._add_parameter(wall_layout, "Spessore parete (mm)", 0.3, 0.05, 5.0, 2, help_key="wall_thickness"),
+            "teeth_height": self._add_parameter(wall_layout, "Altezza denti (mm)", 0.8, 0.1, 5.0, 2, help_key="teeth_height"),
+            "teeth_contact": self._add_parameter(wall_layout, "Contatto denti (mm)", 0.3, 0.05, 5.0, 2, help_key="teeth_contact"),
+            "teeth_base": self._add_parameter(wall_layout, "Base denti (mm)", 1.0, 0.1, 10.0, 2, help_key="teeth_base"),
+            "teeth_penetration": self._add_parameter(wall_layout, "Penetrazione denti (mm)", 0.1, 0.0, 2.0, 2, help_key="teeth_penetration"),
+            "perforation_size": self._add_parameter(wall_layout, "Dimensione fori (mm)", 2.0, 0.2, 20.0, 2, help_key="perforation_size"),
+            "perforation_web": self._add_parameter(wall_layout, "Ponte tra fori (mm)", 1.0, 0.1, 10.0, 2, help_key="perforation_web"),
+            "solid_margin": self._add_parameter(wall_layout, "Margine pieno (mm)", 1.0, 0.0, 10.0, 2, help_key="solid_margin"),
             "fragmentation": self._add_parameter(
-                wall_layout, "Frammentazione ogni (mm, 0 = no)", 0.0, 0.0, 100.0, 1
+                wall_layout, "Frammentazione ogni (mm, 0 = no)", 0.0, 0.0, 100.0, 1, help_key="fragmentation"
             ),
         })
-        self.support_inputs["wall_spacing"].setToolTip(
-            "Distanza tra le pareti della griglia in X e in Y."
-        )
-        self.support_inputs["teeth_contact"].setToolTip(
-            "Lunghezza della punta di ogni dente a contatto con il pezzo."
-        )
-        self.support_inputs["perforation_web"].setToolTip(
-            "Materiale lasciato tra due fori vicini e tra i fori e le estremità delle pareti."
-        )
-        self.support_inputs["solid_margin"].setToolTip(
-            "Fascia piena senza fori sotto i denti superiori e sopra la base (o sopra i denti "
-            "inferiori). 0 porta i fori fino ai denti e alla base."
-        )
-        self.support_inputs["fragmentation"].setToolTip(
-            "Interrompe le pareti a questo intervallo per facilitarne la rimozione; 0 disattiva."
-        )
         self.perforation = QtWidgets.QCheckBox("Perforazioni a rombo")
         self.perforation.setChecked(True)
         self.perforation.stateChanged.connect(self._support_settings_changed)
         wall_layout.addWidget(self.perforation)
+        self._add_help(wall_layout, "perforation", self.perforation)
         right_layout.addWidget(self.wall_panel)
 
         # Parameters of the BCC lattice
         self.lattice_panel = QtWidgets.QWidget()
         lattice_layout = QtWidgets.QVBoxLayout(self.lattice_panel)
         lattice_layout.setContentsMargins(0, 0, 0, 0)
+        lattice_layout.setSpacing(7)
         self.support_inputs.update({
-            "width": self._add_parameter(lattice_layout, "Spessore asta (mm)", 0.4, 0.1, 20.0, 2),
-            "cell_size": self._add_parameter(lattice_layout, "Dimensione cella BCC (mm)", 5.0, 2.0, 20.0, 2),
-            "border": self._add_parameter(lattice_layout, "Passo aste perimetrali (mm)", 3.0, 0.5, 20.0, 2),
+            "width": self._add_parameter(lattice_layout, "Spessore asta (mm)", 0.4, 0.1, 20.0, 2, help_key="width"),
+            "cell_size": self._add_parameter(lattice_layout, "Dimensione cella BCC (mm)", 5.0, 2.0, 20.0, 2, help_key="cell_size"),
+            "border": self._add_parameter(lattice_layout, "Passo aste perimetrali (mm)", 3.0, 0.5, 20.0, 2, help_key="border"),
         })
         right_layout.addWidget(self.lattice_panel)
-        self.support_inputs["outer_gap"].setToolTip(
-            "Arretra ogni bordo della proiezione di questo valore per lato. "
-            "Un'impronta larga meno del doppio dell'offset può scomparire; "
-            "la soglia Area minima può eliminare altri frammenti."
-        )
         self.use_skin = QtWidgets.QCheckBox("Bordo esterno")
         self.use_skin.setChecked(True)
         self.upper_teeth = QtWidgets.QCheckBox("Denti superiori")
         self.upper_teeth.setChecked(True)
         self.lower_teeth = QtWidgets.QCheckBox("Denti inferiori")
         self.lower_teeth.setChecked(True)
-        for checkbox in (self.use_skin, self.upper_teeth, self.lower_teeth):
+        for checkbox, help_key in (
+            (self.use_skin, "use_skin"),
+            (self.upper_teeth, "upper_teeth"),
+            (self.lower_teeth, "lower_teeth"),
+        ):
             checkbox.stateChanged.connect(self._support_settings_changed)
             right_layout.addWidget(checkbox)
+            self._add_help(right_layout, help_key, checkbox)
         self.structure_controls = [self.use_skin, self.upper_teeth, self.lower_teeth]
 
         self.generate_button = QtWidgets.QPushButton("Genera supporti PySLM")
@@ -345,9 +352,9 @@ class MainWindow(QtWidgets.QMainWindow):
         right_layout.addStretch(1)
         self._support_type_changed()
 
-        layout.addWidget(self.left_panel)
+        layout.addWidget(self._scrollable(self.left_panel, 290, 350))
         layout.addWidget(viewer_panel, 1)
-        layout.addWidget(self.right_panel)
+        layout.addWidget(self._scrollable(self.right_panel, 300, 370))
         self.setCentralWidget(outer)
 
     def _build_diagnostics(self) -> None:
@@ -369,6 +376,8 @@ class MainWindow(QtWidgets.QMainWindow):
         dock.setMinimumHeight(125)
         dock.setWidget(tabs)
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, dock)
+        # Keep the log compact so the 3D view gets the space (scrollable side panels no longer force it)
+        self.resizeDocks([dock], [150], QtCore.Qt.Vertical)
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -383,6 +392,20 @@ class MainWindow(QtWidgets.QMainWindow):
             QPushButton#primaryButton { background: #087f75; border-color: #12998b; font-weight: 600; }
             QPushButton#primaryButton:hover { background: #0a9589; }
             QFrame#sidePanel { background: #1a2129; border: 1px solid #2a3541; border-radius: 8px; }
+            QScrollArea#sideScroll { background: transparent; border: 0; }
+            QScrollBar:vertical { background: #161c23; width: 10px; margin: 0; border: 0; }
+            QScrollBar::handle:vertical { background: #34414f; border-radius: 4px; min-height: 30px; }
+            QScrollBar::handle:vertical:hover { background: #4b6b8a; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
+            QLabel#helpBadge {
+                background: #24384c; color: #9fd0ff; border: 1px solid #3b5a78;
+                border-radius: 8px; font-size: 10px; font-weight: 700;
+            }
+            QLabel#helpBadge:hover { background: #2f5f8f; color: #ffffff; }
+            QToolTip {
+                background: #22303d; color: #e6ebf0; border: 1px solid #4b6b8a; padding: 6px;
+            }
             QLabel#sectionTitle { color: #9eacba; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
             QLabel#valueLabel { color: #c6d0da; }
             QDoubleSpinBox {
@@ -1036,6 +1059,7 @@ class MainWindow(QtWidgets.QMainWindow):
         minimum: float,
         maximum: float,
         decimals: int,
+        help_key: Optional[str] = None,
     ) -> QtWidgets.QDoubleSpinBox:
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel(title))
@@ -1043,7 +1067,38 @@ class MainWindow(QtWidgets.QMainWindow):
         spin.valueChanged.connect(self._support_settings_changed)
         row.addWidget(spin)
         layout.addLayout(row)
+        if help_key is not None:
+            self._add_help(layout, help_key, spin)
         return spin
+
+    def _add_help(
+        self, layout: QtWidgets.QBoxLayout, help_key: str, *targets: QtWidgets.QWidget
+    ) -> _HelpBadge:
+        """Add a "?" badge on its own row below a parameter; its controls show the same tooltip."""
+        text = HELP[help_key]
+        badge = _HelpBadge(text)
+        row = QtWidgets.QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 2)
+        row.addWidget(badge)
+        row.addStretch(1)
+        layout.addLayout(row)
+        for target in targets:
+            target.setToolTip(_tooltip_html(text))
+        self.help_badges[help_key] = badge
+        return badge
+
+    @staticmethod
+    def _scrollable(panel: QtWidgets.QWidget, minimum: int, maximum: int) -> QtWidgets.QScrollArea:
+        """Wrap a side panel in a vertical scroll area so long parameter lists stay reachable."""
+        area = QtWidgets.QScrollArea()
+        area.setObjectName("sideScroll")
+        area.setWidget(panel)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QtWidgets.QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        area.setMinimumWidth(minimum)
+        area.setMaximumWidth(maximum)
+        return area
 
 
 def main() -> int:

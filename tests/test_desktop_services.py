@@ -728,3 +728,35 @@ def test_surfaces_resting_on_build_plate_are_not_support_regions() -> None:
     # The only downward-facing surface is the base, which sits on the plate and
     # must not become an (always empty) support region.
     assert generator.identifySupportRegions(part, 45.0, True) == []
+
+
+def test_every_adjustable_parameter_has_a_help_badge(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PyQt5")
+    pytest.importorskip("pyqtgraph")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5 import QtCore, QtGui, QtWidgets
+
+    from pyslm_app.help_texts import HELP
+    from pyslm_app.main import MainWindow
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = MainWindow()
+
+    # Every help text is used, and every spin box and check box of the side panels has a tooltip
+    used = {key.split("_")[0] if key.startswith("rotation_") else key for key in window.help_badges}
+    assert set(HELP) <= used
+    controls = [
+        widget
+        for panel in (window.left_panel, window.right_panel)
+        for widget in panel.findChildren((QtWidgets.QDoubleSpinBox, QtWidgets.QCheckBox))
+    ]
+    assert len(controls) >= 30
+    assert all(widget.toolTip() for widget in controls)
+
+    # Hovering a badge shows its explanation immediately
+    badge = window.help_badges["wall_spacing"]
+    window.show()
+    app.processEvents()
+    badge.enterEvent(QtGui.QEnterEvent(QtCore.QPointF(), QtCore.QPointF(), QtCore.QPointF()))
+    assert "Distanza tra due pareti" in QtWidgets.QToolTip.text()
+    window.close()
