@@ -146,6 +146,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.rotation_inputs.append(spin)
             row.addWidget(spin)
             left_layout.addLayout(row)
+        lift_row = QtWidgets.QHBoxLayout()
+        lift_row.addWidget(QtWidgets.QLabel("Sollevamento piatto (mm)"))
+        self.lift_input = self._double_input(3.0, 0.0, 50.0, 2)
+        self.lift_input.setSingleStep(0.5)
+        self.lift_input.setToolTip(
+            "Distanza tra il piatto e il punto più basso del pezzo. Lo spazio "
+            "permette di supportare anche le superfici inferiori del pezzo."
+        )
+        self.lift_input.valueChanged.connect(self._apply_build_lift)
+        lift_row.addWidget(self.lift_input)
+        left_layout.addLayout(lift_row)
         self.compare_orientations_button = QtWidgets.QPushButton(
             "Confronta 24 orientamenti"
         )
@@ -380,6 +391,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.overhang_label.setText("Ricalcolare le superfici per l'orientamento corrente.")
         self.support_label.setText("Supporti invalidati: è cambiato l'orientamento.")
         self._log(f"Orientamento aggiornato: X {angles[0]:.1f}°, Y {angles[1]:.1f}°, Z {angles[2]:.1f}°.")
+
+    def _apply_build_lift(self, value: float) -> None:
+        if not self.session.has_part:
+            self.session.build_lift = float(value)
+            return
+
+        def apply() -> None:
+            self.session.set_build_lift(value)
+            self._refresh_support_region_list()
+            self._refresh_analysis()
+            self.overhang_label.setText("Ricalcolare le superfici per la nuova posizione.")
+            self.support_label.setText("Supporti invalidati: è cambiato il sollevamento.")
+            self._log(f"Sollevamento dal piatto: {value:.2f} mm.")
+
+        self._run_action("Aggiornamento sollevamento", apply)
 
     def _set_orientation_inputs(self, angles: Tuple[float, float, float]) -> None:
         self._updating_orientation = True

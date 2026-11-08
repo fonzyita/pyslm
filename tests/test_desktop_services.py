@@ -23,13 +23,36 @@ def test_load_orient_and_measure_stl() -> None:
     assert all(value > 0 for value in extents)
     assert initial_volume is not None and initial_volume > 0
     assert session.part is not None
-    assert session.part.geometry.bounds[0, 2] == pytest.approx(0.0, abs=1e-6)
+    assert session.part.geometry.bounds[0, 2] == pytest.approx(session.build_lift, abs=1e-6)
 
     session.set_orientation(15.0, 0.0, 30.0)
     oriented_extents, oriented_volume = session.get_metrics()
     assert all(value > 0 for value in oriented_extents)
     assert oriented_volume == pytest.approx(initial_volume)
+    assert session.part.geometry.bounds[0, 2] == pytest.approx(session.build_lift, abs=1e-6)
+
+
+def test_build_lift_raises_part_and_invalidates_supports() -> None:
+    session = ModelSession()
+    assert session.build_lift == pytest.approx(3.0)
+    session.load_stl(str(MODEL_PATH))
+    height = float(np.ptp(session.part.geometry.bounds[:, 2]))
+    session.support_meshes = [trimesh.creation.box(extents=[1.0] * 3)]
+    session.support_regions = [SimpleNamespace()]
+
+    session.set_build_lift(5.5)
+
+    assert session.part.geometry.bounds[0, 2] == pytest.approx(5.5, abs=1e-6)
+    assert float(np.ptp(session.part.geometry.bounds[:, 2])) == pytest.approx(height)
+    assert session.support_meshes == [] and session.support_regions == []
+
+    session.set_orientation(0.0, 30.0, 0.0)
+    assert session.part.geometry.bounds[0, 2] == pytest.approx(5.5, abs=1e-6)
+
+    session.set_build_lift(0.0)
     assert session.part.geometry.bounds[0, 2] == pytest.approx(0.0, abs=1e-6)
+    with pytest.raises(ValueError):
+        session.set_build_lift(-1.0)
 
 
 def test_mesh_diagnostics_report_mesh_integrity() -> None:
@@ -84,9 +107,10 @@ def test_voxel_screen_reports_enclosed_void_volume(tmp_path: Path) -> None:
     assert result.sampled_voxel_count == result.grid_shape[0] * result.grid_shape[1] * result.grid_shape[2]
     assert len(result.candidates) == 1
     assert result.candidates[0].volume == pytest.approx(64.0)
+    lift = session.build_lift
     assert result.candidates[0].bounds == (
-        (-2.0, -2.0, 3.0),
-        (2.0, 2.0, 7.0),
+        (-2.0, -2.0, 3.0 + lift),
+        (2.0, 2.0, 7.0 + lift),
     )
     assert result.visualization_mesh is not None
     assert np.asarray(result.visualization_mesh.bounds) == pytest.approx(
@@ -196,7 +220,7 @@ def test_export_oriented_stl(tmp_path: Path) -> None:
 
     exported_mesh = trimesh.load_mesh(destination, process=False)
     assert len(exported_mesh.faces) > 0
-    assert exported_mesh.bounds[0, 2] == pytest.approx(0.0, abs=1e-5)
+    assert exported_mesh.bounds[0, 2] == pytest.approx(session.build_lift, abs=1e-5)
 
 
 def test_remove_support_region_keeps_meshes_aligned_and_exportable(

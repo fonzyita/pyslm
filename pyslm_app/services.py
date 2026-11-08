@@ -83,6 +83,9 @@ class ModelSession:
         self.support_regions: List[Any] = []
         self.support_meshes: List[Any] = []
         self._removed_supports: List[Tuple[int, Any, Any]] = []
+        # Gap between the build plate and the lowest point of the part [mm], so
+        # downward-facing surfaces at the bottom of the part can be supported.
+        self.build_lift = 3.0
 
     @property
     def has_part(self) -> bool:
@@ -110,7 +113,7 @@ class ModelSession:
 
         center = mesh.bounds.mean(axis=0)
         part.origin = [-float(center[0]), -float(center[1]), 0.0]
-        part.dropToPlatform()
+        part.dropToPlatform(self.build_lift)
 
         diagnostic_geometry = trimesh.load_mesh(
             str(path), process=False, validate=False
@@ -132,7 +135,18 @@ class ModelSession:
     def set_orientation(self, x_degrees: float, y_degrees: float, z_degrees: float) -> None:
         part = self._require_part()
         part.rotation = [x_degrees, y_degrees, z_degrees]
-        self._center_on_platform(part)
+        self._center_on_platform(part, self.build_lift)
+        self.overhang_mesh = None
+        self.clear_supports()
+
+    def set_build_lift(self, lift: float) -> None:
+        """Raise the part so its lowest point is ``lift`` mm above the build plate."""
+        if lift < 0:
+            raise ValueError("Il sollevamento dal piatto non può essere negativo.")
+        self.build_lift = float(lift)
+        if self.part is None:
+            return
+        self.part.dropToPlatform(self.build_lift)
         self.overhang_mesh = None
         self.clear_supports()
 
@@ -682,10 +696,10 @@ class ModelSession:
         return self._diagnostic_geometry
 
     @staticmethod
-    def _center_on_platform(part: Any) -> None:
+    def _center_on_platform(part: Any, lift: float = 0.0) -> None:
         bounds = part.geometry.bounds
         origin = part.origin.copy()
         origin[0] -= float((bounds[0, 0] + bounds[1, 0]) / 2.0)
         origin[1] -= float((bounds[0, 1] + bounds[1, 1]) / 2.0)
         part.origin = origin
-        part.dropToPlatform()
+        part.dropToPlatform(lift)
