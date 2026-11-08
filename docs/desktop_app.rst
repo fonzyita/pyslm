@@ -58,7 +58,11 @@ parete"), so the exported STL contains closed solids. Trapezoidal teeth touch
 the part: "Altezza denti", "Contatto denti" (tip length), "Base denti" and
 "Penetrazione denti" (how far the tips enter the part). Lower teeth are only
 used where a wall stands on the part, never on the build plate. Diamond
-perforations ("Dimensione fori") lighten the walls and can be disabled, and
+perforations ("Dimensione fori", with "Ponte tra fori" of material between
+them) lighten the walls and can be disabled. "Margine pieno" is the solid band
+kept without holes below the upper teeth and above the base; very low regions
+may stay solid unless it is reduced. The boundary wall is perforated
+continuously around corners and curves, and
 "Frammentazione ogni" splits the walls at a fixed interval (0 disables it).
 
 "Sollevamento piatto" raises the part above the build plate (default 3 mm).

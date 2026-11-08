@@ -16,6 +16,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 import shapely
+import shapely.affinity
 import shapely.geometry
 import trimesh
 
@@ -92,22 +93,38 @@ class WallSupportParameters:
             raise ValueError('The tooth contact length cannot exceed the tooth base length')
 
 
-@dataclass
 class _Wall:
-    origin: np.ndarray      # (2,) start point in XY
-    direction: np.ndarray   # (2,) unit vector along the wall
-    length: float
+    """A vertical wall following a polyline in XY; ``u`` is the arc length along the polyline."""
+
+    def __init__(self, points: np.ndarray):
+        self.points = np.asarray(points, dtype=float).reshape(-1, 2)
+        self.arc = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(self.points, axis=0), axis=1))]
+
+    @property
+    def length(self) -> float:
+        return float(self.arc[-1])
+
+    def at(self, u: np.ndarray) -> np.ndarray:
+        """XY positions at arc lengths ``u``."""
+        return np.column_stack([np.interp(u, self.arc, self.points[:, 0]), np.interp(u, self.arc, self.points[:, 1])])
+
+    def segments(self):
+        """``(start arc length, end arc length, origin, unit direction)`` of every straight segment."""
+        for i in range(len(self.points) - 1):
+            length = self.arc[i + 1] - self.arc[i]
+            if length > 1e-9:
+                yield self.arc[i], self.arc[i + 1], self.points[i], (self.points[i + 1] - self.points[i]) / length
 
 
-def _wallTransform(wall: _Wall, thickness: float) -> np.ndarray:
+def _wallTransform(origin: np.ndarray, direction: np.ndarray, thickness: float) -> np.ndarray:
     """Matrix mapping the local wall frame (u along the wall, z up, w through the thickness) to world coordinates."""
-    d = np.r_[wall.direction, 0.0]
+    d = np.r_[direction, 0.0]
     n = np.cross(d, [0.0, 0.0, 1.0])  # keeps the frame right-handed so face normals point outwards
     m = np.eye(4)
     m[:3, 0] = d
     m[:3, 1] = [0.0, 0.0, 1.0]
     m[:3, 2] = n
-    m[:3, 3] = np.r_[wall.origin, 0.0] - n * thickness / 2.0
+    m[:3, 3] = np.r_[origin, 0.0] - n * thickness / 2.0
     return m
 
 
@@ -184,14 +201,18 @@ class WallBlockSupport(BlockSupportBase):
         x0, x1 = bounds[0, 0] - s, bounds[1, 0] + s
         y0, y1 = bounds[0, 1] - s, bounds[1, 1] + s
         for y in np.arange(np.ceil(y0 / s), np.floor(y1 / s) + 1) * s:
-            walls.append(_Wall(np.array([x0, y]), np.array([1.0, 0.0]), x1 - x0))
+            walls.append(_Wall([[x0, y], [x1, y]]))
         for x in np.arange(np.ceil(x0 / s), np.floor(x1 / s) + 1) * s:
-            walls.append(_Wall(np.array([x, y0]), np.array([0.0, 1.0]), y1 - y0))
+            walls.append(_Wall([[x, y0], [x, y1]]))
         return walls
 
     @staticmethod
     def _borderWalls(volume: trimesh.Trimesh, params: WallSupportParameters) -> List[_Wall]:
-        """Straight wall panels along the boundary of the region, inset by half the wall thickness."""
+        """One continuous wall along every boundary loop of the region, inset by half the wall thickness.
+
+        Each loop is a single wall, so teeth and perforations run continuously around corners and curves instead of
+        being restarted (or not fitting at all) on every short straight panel.
+        """
         from scipy import ndimage
         import skimage.measure
 
@@ -220,12 +241,9 @@ class WallBlockSupport(BlockSupportBase):
             if len(loop) < 3:
                 continue
             line = shapely.geometry.LineString(loop).simplify(max(pitch, 0.1))
-            points = np.asarray(line.coords)
-            for a, b in zip(points[:-1], points[1:]):
-                length = float(np.linalg.norm(b - a))
-                if length < 0.5 * params.sampleStep:
-                    continue
-                walls.append(_Wall(a, (b - a) / length, length))
+            wall = _Wall(np.asarray(line.coords))
+            if wall.length >= params.sampleStep:
+                walls.append(wall)
         return walls
 
     def _buildWalls(self, volume: trimesh.Trimesh, walls: Sequence[_Wall],
@@ -238,7 +256,7 @@ class WallBlockSupport(BlockSupportBase):
         counts = np.array([len(u) for u in samplesU])
         if counts.sum() == 0:
             return []
-        xy = np.vstack([wall.origin + u[:, None] * wall.direction for wall, u in zip(walls, samplesU)])
+        xy = np.vstack([wall.at(u) for wall, u in zip(walls, samplesU)])
         lines, intervals = utils.verticalIntervals(volume, xy, mergeGap=0.25)
         # Intervals shorter than the strut-scale tolerance come from lines grazing the boundary of the volume
         keep = (intervals[:, 1] - intervals[:, 0]) > 1e-3
@@ -390,25 +408,36 @@ class WallBlockSupport(BlockSupportBase):
 
     @staticmethod
     def _extrudeWall(outline: Any, wall: _Wall, thickness: float) -> Optional[trimesh.Trimesh]:
-        # Snapping to a 0.1 um grid removes duplicate and nearly coincident vertices left by the Boolean operations,
-        # which would otherwise produce non-manifold edges in the extruded wall
-        outline = shapely.set_precision(outline, 1e-4)
-        polygons = [_sanitizePolygon(g) for g in getattr(outline, 'geoms', [outline])
-                    if isinstance(g, shapely.geometry.Polygon)]
-        meshes = []
+        """Extrude the (u, z) outline of a wall through its thickness, one straight segment of the wall at a time."""
         engine = _triangulationEngine()
-        for polygon in polygons:
-            if polygon.is_empty or polygon.area < 1e-6:
+        segments = list(wall.segments())
+        meshes = []
+        for u0, u1, origin, direction in segments:
+            piece = outline
+            if len(segments) > 1:
+                piece = outline.intersection(shapely.geometry.box(u0, -1e4, u1, 1e4))
+            if piece.is_empty:
                 continue
-            try:
-                meshes.append(trimesh.creation.extrude_polygon(polygon, thickness, engine=engine))
-            except Exception:
-                logging.debug('Could not triangulate a support wall polygon', exc_info=True)
+            piece = shapely.affinity.translate(piece, xoff=-u0)
+            # Snapping to a 0.1 um grid removes duplicate and nearly coincident vertices left by the Boolean
+            # operations, which would otherwise produce non-manifold edges in the extruded wall
+            piece = shapely.set_precision(piece, 1e-4)
+            pieceMeshes = []
+            for polygon in getattr(piece, 'geoms', [piece]):
+                if not isinstance(polygon, shapely.geometry.Polygon) or polygon.is_empty or polygon.area < 1e-6:
+                    continue
+                try:
+                    pieceMeshes.append(trimesh.creation.extrude_polygon(_sanitizePolygon(polygon), thickness,
+                                                                        engine=engine))
+                except Exception:
+                    logging.debug('Could not triangulate a support wall polygon', exc_info=True)
+            if pieceMeshes:
+                mesh = _concatenate(pieceMeshes)
+                mesh.apply_transform(_wallTransform(origin, direction, thickness))
+                meshes.append(mesh)
         if not meshes:
             return None
-        mesh = _concatenate(meshes)
-        mesh.apply_transform(_wallTransform(wall, thickness))
-        return mesh
+        return _concatenate(meshes)
 
 
 def _sanitizePolygon(polygon: shapely.geometry.Polygon, tolerance: float = 1e-3) -> shapely.geometry.Polygon:

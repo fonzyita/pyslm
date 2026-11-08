@@ -251,6 +251,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "teeth_base": self._add_parameter(wall_layout, "Base denti (mm)", 1.0, 0.1, 10.0, 2),
             "teeth_penetration": self._add_parameter(wall_layout, "Penetrazione denti (mm)", 0.1, 0.0, 2.0, 2),
             "perforation_size": self._add_parameter(wall_layout, "Dimensione fori (mm)", 2.0, 0.2, 20.0, 2),
+            "perforation_web": self._add_parameter(wall_layout, "Ponte tra fori (mm)", 1.0, 0.1, 10.0, 2),
+            "solid_margin": self._add_parameter(wall_layout, "Margine pieno (mm)", 1.0, 0.0, 10.0, 2),
             "fragmentation": self._add_parameter(
                 wall_layout, "Frammentazione ogni (mm, 0 = no)", 0.0, 0.0, 100.0, 1
             ),
@@ -260,6 +262,13 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.support_inputs["teeth_contact"].setToolTip(
             "Lunghezza della punta di ogni dente a contatto con il pezzo."
+        )
+        self.support_inputs["perforation_web"].setToolTip(
+            "Materiale lasciato tra due fori vicini e tra i fori e le estremità delle pareti."
+        )
+        self.support_inputs["solid_margin"].setToolTip(
+            "Fascia piena senza fori sotto i denti superiori e sopra la base (o sopra i denti "
+            "inferiori). 0 porta i fori fino ai denti e alla base."
         )
         self.support_inputs["fragmentation"].setToolTip(
             "Interrompe le pareti a questo intervallo per facilitarne la rimozione; 0 disattiva."
@@ -904,7 +913,8 @@ class MainWindow(QtWidgets.QMainWindow):
             teethPenetration=values["teeth_penetration"].value(),
             usePerforation=self.perforation.isChecked(),
             perforationSize=values["perforation_size"].value(),
-            perforationWeb=max(0.5 * values["perforation_size"].value(), 0.3),
+            perforationWeb=values["perforation_web"].value(),
+            perforationMargin=values["solid_margin"].value(),
             fragmentationInterval=values["fragmentation"].value(),
         )
 

@@ -23,7 +23,11 @@ All notable changes to this project will be documented in this file.
   Walls follow the support volume from the build plate or part to the overhang, with trapezoidal teeth (contact length,
   base length, base interval, height and penetration), diamond perforations, optional fragmentation and a physical
   wall thickness; every wall is exported as a closed solid.
-- Desktop app: "Blocco a pareti (stile SLM)" support type with its parameters, and an adjustable build-plate lift
+- The boundary wall of `WallBlockSupport` is one continuous wall per boundary loop, so teeth and perforations run
+  around corners and curves instead of being restarted on every short straight panel (up to 5x more perforations
+  along the boundary on the turbine model).
+- Desktop app: "Blocco a pareti (stile SLM)" support type with its parameters (including the solid margin and the
+  web between perforations), and an adjustable build-plate lift
   (default 3 mm) so the bottom surfaces of the part can be supported.
 - Desktop app: exposed the BCC cell size, border distance and upper/lower support teeth in the support panel.
 - Added `pyslm.support.utils.pointsInsideMesh`, a vectorised vertical-ray winding test for closed meshes, and

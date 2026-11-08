@@ -43,9 +43,9 @@ def test_teeth_have_the_requested_contact_length() -> None:
     volume = _block([20.0, 6.0, 8.0])
     region, params = _region(volume, useBorder=False, usePerforation=False)
     walls = region._gridWalls(volume, params)
-    wall = next(w for w in walls if w.direction[0] == 1.0 and abs(w.origin[1]) < 1e-9)
+    wall = next(w for w in walls if w.points[0, 1] == w.points[1, 1] and abs(w.points[0, 1]) < 1e-9)
     u = np.linspace(0.0, wall.length, int(wall.length / params.sampleStep) + 1)
-    inside = (wall.origin[0] + u > -10.0) & (wall.origin[0] + u < 10.0)
+    inside = (wall.points[0, 0] + u > -10.0) & (wall.points[0, 0] + u < 10.0)
     intervals = [np.array([[0.0, 8.0]]) if flag else np.empty((0, 2)) for flag in inside]
 
     outline = region._wallOutline(u, intervals, params)
@@ -89,15 +89,15 @@ def test_overlapping_shells_give_one_continuous_wall() -> None:
     assert mesh.bounds[1, 2] == pytest.approx(9.9, abs=1e-3)
     # One piece per grid wall: every wall spans the full height without a split at the shell boundary
     assert len(pieces) == len([w for w in region._gridWalls(volume, params)
-                               if len(w.origin) and _crosses(w, volume)])
+                               if _crosses(w, volume)])
 
 
 def _crosses(wall, volume) -> bool:
-    end = wall.origin + wall.direction * wall.length
+    start, end = wall.points[0], wall.points[-1]
     lo, hi = volume.bounds[0, :2], volume.bounds[1, :2]
-    if wall.direction[0] == 1.0:
-        return lo[1] < wall.origin[1] < hi[1]
-    return lo[0] < wall.origin[0] < hi[0] and end[1] > lo[1]
+    if start[1] == end[1]:
+        return lo[1] < start[1] < hi[1]
+    return lo[0] < start[0] < hi[0]
 
 
 def test_parameters_are_validated() -> None:
@@ -123,3 +123,49 @@ def test_holes_touching_the_boundary_are_filled_before_triangulation() -> None:
 
     assert len(cleaned.interiors) == 2
     assert cleaned.area == pytest.approx(100.0 - 2 * 2.0)
+
+
+def _wall_holes(region, wall, params):
+    from pyslm.support import utils
+
+    u = np.linspace(0.0, wall.length, int(np.ceil(wall.length / params.sampleStep)) + 1)
+    lines, intervals = utils.verticalIntervals(region.supportVolume, wall.at(u), mergeGap=0.25)
+    outline = region._wallOutline(u, [intervals[lines == i] for i in range(len(u))], params)
+    return outline
+
+
+def test_border_is_perforated_continuously_along_curved_boundaries() -> None:
+    # A 64-sided cylinder: the boundary is made of ~1 mm segments, shorter than one perforation
+    volume = trimesh.creation.cylinder(radius=10.0, height=12.0, sections=64)
+    volume.apply_translation([0.0, 0.0, 6.0])
+    region, params = _region(volume)
+
+    borders = region._borderWalls(volume, params)
+    assert len(borders) == 1
+    border = borders[0]
+    assert len(border.points) > 20
+    outline = _wall_holes(region, border, params)
+    holes = sum(len(g.interiors) for g in getattr(outline, "geoms", [outline]))
+    # About one hole per (size + web) along the 2*pi*~9.8 mm perimeter, in several rows
+    assert holes > 40
+
+    # The extruded border follows the curved boundary inside the cylinder
+    mesh = region._extrudeWall(outline, border, params.wallThickness)
+    radius = np.linalg.norm(mesh.vertices[:, :2], axis=1)
+    assert radius.max() <= 10.0 + 1e-6
+    assert radius.min() >= 10.0 - params.wallThickness - 0.2
+
+
+def test_solid_margin_controls_the_band_without_holes() -> None:
+    volume = _block([20.0, 6.0, 8.0])
+    lowest = {}
+    for margin in (2.0, 0.0):
+        region, params = _region(volume, perforationMargin=margin, perforationSize=1.0, perforationWeb=0.5,
+                                 useBorder=False)
+        wall = next(w for w in region._gridWalls(volume, params) if w.points[0, 1] == w.points[1, 1] == 0.0)
+        outline = _wall_holes(region, wall, params)
+        holes = [h for g in getattr(outline, "geoms", [outline]) for h in g.interiors]
+        assert holes
+        lowest[margin] = min(np.asarray(h.coords)[:, 1].min() for h in holes)
+        assert lowest[margin] >= margin - 1e-6
+    assert lowest[0.0] < lowest[2.0]
