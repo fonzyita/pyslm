@@ -14,21 +14,28 @@ from .viewer import MeshView
 
 
 class _SupportGeometryWorker(QtCore.QObject):
-    """Builds support-region geometry off the GUI thread."""
+    """Identifies the support regions and builds their geometry off the GUI thread.
 
+    Neither step uses OpenGL (height maps are projected on the CPU), so the
+    window stays responsive for the whole generation.
+    """
+
+    identified = QtCore.pyqtSignal(int)
     progress = QtCore.pyqtSignal(int, int)
     finished = QtCore.pyqtSignal(list, list)
     failed = QtCore.pyqtSignal(str)
 
-    def __init__(self, regions: List[Any]) -> None:
+    def __init__(self, identify: Callable[[], List[Any]]) -> None:
         super().__init__()
-        self._regions = regions
+        self._identify = identify
 
     @QtCore.pyqtSlot()
     def run(self) -> None:
         try:
+            regions = self._identify()
+            self.identified.emit(len(regions))
             generated, meshes = ModelSession.build_support_geometry(
-                self._regions, self.progress.emit
+                regions, self.progress.emit
             )
         except Exception as error:
             logging.exception("Generazione supporti PySLM non riuscita")
@@ -696,7 +703,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         values = self.support_inputs
         support_type = self.support_type.currentData()
-        regions: List[Any] = []
         try:
             wall_parameters = self._wall_parameters() if support_type == "walls" else None
             if wall_parameters is not None:
@@ -705,36 +711,37 @@ class MainWindow(QtWidgets.QMainWindow):
             self._warn(f"Parametri delle pareti non validi.\n\n{error}")
             return
 
-        def identify() -> None:
-            # Region identification renders height maps with OpenGL, which must
-            # stay on the GUI thread; only the geometry build runs in the worker.
-            regions.extend(
-                self.session.identify_support_regions(
-                    support_type,
-                    self.angle_input.value(),
-                    values["ray"].value(),
-                    values["outer_gap"].value(),
-                    values["inner_gap"].value(),
-                    values["simplify"].value(),
-                    values["area"].value(),
-                    1.0,
-                    values["width"].value(),
-                    values["cell_size"].value(),
-                    values["border"].value(),
-                    self.use_skin.isChecked(),
-                    self.upper_teeth.isChecked(),
-                    self.lower_teeth.isChecked(),
-                    wall_parameters=wall_parameters,
-                )
-            )
+        # Read every setting on the GUI thread; the worker must not touch widgets
+        arguments = (
+            support_type,
+            self.angle_input.value(),
+            values["ray"].value(),
+            values["outer_gap"].value(),
+            values["inner_gap"].value(),
+            values["simplify"].value(),
+            values["area"].value(),
+            1.0,
+            values["width"].value(),
+            values["cell_size"].value(),
+            values["border"].value(),
+            self.use_skin.isChecked(),
+            self.upper_teeth.isChecked(),
+            self.lower_teeth.isChecked(),
+        )
+        session = self.session
 
-        if not self._run_action("Identificazione regioni di supporto", identify):
-            return
+        def identify() -> List[Any]:
+            return session.identify_support_regions(*arguments, wall_parameters=wall_parameters)
 
         thread = QtCore.QThread(self)
-        worker = _SupportGeometryWorker(regions)
+        worker = _SupportGeometryWorker(identify)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
+        worker.identified.connect(
+            lambda count: self.statusBar().showMessage(
+                f"Regioni di supporto individuate: {count}. Costruzione geometria…"
+            )
+        )
         worker.progress.connect(self._support_build_progress)
         worker.finished.connect(
             lambda generated, meshes: self._support_build_finished(support_type, generated, meshes)
@@ -746,7 +753,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._support_thread = thread
         self._support_worker = worker
         self._set_busy(True)
-        self.statusBar().showMessage(f"Costruzione geometria supporti: 0/{len(regions)} regioni…")
+        self.statusBar().showMessage("Identificazione regioni di supporto…")
         thread.start()
 
     def _set_busy(self, busy: bool) -> None:

@@ -60,8 +60,13 @@ All notable changes to this project will be documented in this file.
   this also removes the trimesh barycentric divide-by-zero warnings caused by degenerate support-volume faces.
 - Perimeter rails split the side mesh by face connectivity directly; `Trimesh.split` added a stray face to each
   component, which hid parts of the support outline.
-- Desktop app: support geometry is built on a worker thread with per-region progress, so the window stays
-  responsive; region identification (OpenGL) still runs on the GUI thread.
+- Desktop app: support generation runs entirely on a worker thread with per-region progress, so the window stays
+  responsive.
+- `pyslm.support.render.projectHeightMap` projects height maps on the CPU by default (new `useOpenGL` option for the
+  previous renderer). The hidden OpenGL window used for every height map changed the current OpenGL state and made
+  the desktop 3D viewer fail to draw (`GLError` "invalid operation") after support generation. The CPU projection
+  matches the OpenGL result, is exact on sloped surfaces where the previous CPU ray-tracing fallback was wrong by
+  several millimetres, and is also the fallback when OpenGL rendering fails.
 
 
 ### Changed

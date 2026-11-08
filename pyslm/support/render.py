@@ -190,7 +190,22 @@ else:
 def projectHeightMap(mesh: trimesh.Trimesh,
                      resolution: float = 0.05,
                      flipDir: bool = False,
-                     bbox: np.ndarray = None) -> np.ndarray:
+                     bbox: np.ndarray = None,
+                     useOpenGL: bool = False) -> np.ndarray:
+    """
+    Project the lowest (or, with ``flipDir``, highest) surface of a mesh onto a height map over ``bbox``.
+
+    By default the height map is computed on the CPU by intersecting vertical lines with the mesh. With ``useOpenGL``
+    it is rendered in a hidden OpenGL window instead; that window changes the current OpenGL state, which corrupts
+    the rendering of other OpenGL widgets in the same Qt application (e.g. a 3D viewer).
+
+    :param mesh: The mesh to project
+    :param resolution: Pixel size [mm]
+    :param flipDir: Project the highest surface instead of the lowest
+    :param bbox: The (2, 3) bounds covered by the height map; defaults to the mesh bounds
+    :param useOpenGL: Render with OpenGL (falls back to the CPU projection if rendering fails)
+    :return: The height map, ``0`` where the mesh is absent
+    """
 
     if not np.isfinite(resolution) or resolution <= 0:
         raise ValueError("Height-map resolution must be a positive finite number.")
@@ -215,6 +230,9 @@ def projectHeightMap(mesh: trimesh.Trimesh,
     if mesh is None or len(mesh.faces) == 0:
         return np.zeros((image_size[1], image_size[0]), dtype=np.float32)
 
+    if not useOpenGL:
+        return _projectHeightMapVertical(mesh, resolution, flipDir, bbox)
+
     c = None
     render_error = None
 
@@ -225,7 +243,7 @@ def projectHeightMap(mesh: trimesh.Trimesh,
         app.process_events()
     except Exception as exc:
         render_error = exc
-        logging.warning("OpenGL height-map rendering failed; trying CPU ray tracing: %s", exc)
+        logging.warning("OpenGL height-map rendering failed; projecting it on the CPU instead: %s", exc)
     finally:
         if c is not None:
             try:
@@ -236,19 +254,48 @@ def projectHeightMap(mesh: trimesh.Trimesh,
                 logging.warning("Could not close the OpenGL height-map canvas: %s", exc)
 
     if c is None or c.rgb is None:
-        logging.warning("OpenGL returned no height map; trying CPU ray tracing.")
+        logging.warning("OpenGL returned no height map; projecting it on the CPU instead.")
         try:
-            return _projectHeightMapRay(mesh, resolution, flipDir, bbox)
+            return _projectHeightMapVertical(mesh, resolution, flipDir, bbox)
         except Exception as exc:
             message = (
                 "PySLM could not render the support height map with OpenGL, and "
-                "CPU ray tracing also failed. Check the OpenGL context and install "
-                "the optional 'rtree' package for CPU fallback."
+                "the CPU projection also failed."
             )
             if render_error is not None:
                 message += " OpenGL error: {}".format(render_error)
             raise RuntimeError(message) from exc
     return c.rgb[:, :, 1]
+
+
+def _projectHeightMapVertical(
+    mesh: trimesh.Trimesh,
+    resolution: float,
+    flipDir: bool,
+    bbox: np.ndarray,
+) -> np.ndarray:
+    """Rasterize the lowest (or, with ``flipDir``, highest) mesh surface along vertical lines without OpenGL.
+
+    Uses the same pixel layout as :func:`_projectHeightMapRay` and the OpenGL renderer, but intersects all vertical
+    lines with the mesh in vectorised batches, which is much faster and needs no OpenGL context.
+    """
+    from . import utils
+
+    extents = np.diff(bbox, axis=0)[0]
+    image_size = np.maximum(np.ceil(extents[:2] / resolution).astype(int), 1)
+    width, height = image_size
+    pixel_size = extents[:2] / image_size
+    rows, columns = np.divmod(np.arange(width * height), width)
+    x_coords = bbox[0, 0] + (columns + 0.5) * pixel_size[0]
+    y_offsets = (rows + 0.5) * pixel_size[1]
+    y_coords = bbox[1, 1] - y_offsets if flipDir else bbox[0, 1] + y_offsets
+
+    result = np.full(width * height, -np.inf if flipDir else np.inf)
+    combine = np.maximum.at if flipDir else np.minimum.at
+    for lines, heights, _sign in utils._iterVerticalHits(mesh, np.column_stack((x_coords, y_coords))):
+        combine(result, lines, heights)
+    result[~np.isfinite(result)] = 0.0
+    return result.astype(np.float32).reshape((height, width))
 
 
 def _projectHeightMapRay(

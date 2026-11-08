@@ -160,3 +160,29 @@ def test_vertical_intervals_treat_overlapping_shells_as_union() -> None:
     lines, intervals = utils.verticalIntervals(mesh, np.array([[0.0, 0.0]]), mergeGap=0.1)
     assert lines.tolist() == [0]
     assert np.allclose(intervals, [[-1.0, 4.0]])
+
+
+def test_height_map_is_projected_without_opengl(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pyslm.support import render
+
+    def no_canvas(*_args, **_kwargs):
+        raise AssertionError("The default height map must not open an OpenGL window")
+
+    # An OpenGL window changes the current GL state and broke the desktop viewer
+    monkeypatch.setattr(render, "Canvas", no_canvas)
+
+    # A sloped slab: lowest surface z = 10 + 0.4 x - 2, highest z = 10 + 0.4 x + 2
+    slab = trimesh.creation.box(extents=[20.0, 10.0, 4.0])
+    slab.vertices[:, 2] += 0.4 * slab.vertices[:, 0] + 10.0
+    bbox = slab.bounds.copy()
+
+    lower = render.projectHeightMap(slab, 0.5, False, bbox)
+    upper = render.projectHeightMap(slab, 0.5, True, bbox)
+
+    assert lower.shape == upper.shape == (20, 40)
+    x = bbox[0, 0] + (np.arange(40) + 0.5) * 0.5
+    assert np.allclose(lower, (10.0 + 0.4 * x - 2.0)[None, :], atol=1e-4)
+    assert np.allclose(upper, (10.0 + 0.4 * x + 2.0)[None, :], atol=1e-4)
+
+    empty = render.projectHeightMap(slab, 0.5, False, bbox + [[30.0, 0.0, 0.0], [30.0, 0.0, 0.0]])
+    assert not empty.any()

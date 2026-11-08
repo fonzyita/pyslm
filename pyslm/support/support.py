@@ -628,7 +628,7 @@ class BlockSupportGenerator(BaseSupportGenerator):
         :return: A tuple containing various height maps
         """
 
-        logging.info('\tGenerated support height map (OpenGL Version)')
+        logging.info('\tGenerated support height map (vertical-line projection)')
 
         # Extend the bounding box extents in the Z direction
         bboxCpy = bbox.copy()

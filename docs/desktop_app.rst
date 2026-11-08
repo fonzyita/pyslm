@@ -38,8 +38,9 @@ The support panel offers the block and grid-truss generators implemented by
 :class:`pyslm.support.GridBlockSupportGenerator`. Grid-only parameters are
 disabled when block support is selected. Generated geometry is produced by
 PySLM's support-region ``geometry()`` methods. Support generation depends on
-the optional OpenGL and boolean-geometry dependencies installed by the
-``desktop`` extra. PySLM errors are reported in the application's diagnostics
+the optional boolean-geometry dependencies installed by the ``desktop`` extra;
+support height maps are projected on the CPU, so generation runs in the
+background and does not interfere with the OpenGL 3D viewer. PySLM errors are reported in the application's diagnostics
 panel and do not terminate the window. Block and grid-truss generation also
 requires the optional ``triangle`` backend from the ``triangulation`` extra.
 Individual generated regions can be

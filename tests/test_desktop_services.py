@@ -592,10 +592,10 @@ def test_height_map_render_failure_is_reported(monkeypatch: pytest.MonkeyPatch) 
 
     expected_image = np.full((2, 2), 3.0, dtype=np.float32)
     monkeypatch.setattr(
-        render, "_projectHeightMapRay", lambda *_args: expected_image
+        render, "_projectHeightMapVertical", lambda *_args: expected_image
     )
     monkeypatch.setattr(render, "Canvas", FailedCanvas)
-    image = render.projectHeightMap(trimesh.creation.box())
+    image = render.projectHeightMap(trimesh.creation.box(), useOpenGL=True)
 
     assert np.array_equal(image, expected_image)
 

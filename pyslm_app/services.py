@@ -512,7 +512,9 @@ class ModelSession:
         lower_teeth: bool,
         wall_parameters: Optional[Any] = None,
     ) -> List[Any]:
-        """Identify the support regions; uses OpenGL, so call it on the GUI thread.
+        """Identify the support regions.
+
+        Height maps are projected on the CPU, so this can run on a worker thread.
 
         ``wall_parameters`` (a :class:`pyslm.support.WallSupportParameters`) configures the
         ``"walls"`` support type; ``use_skin``, ``upper_teeth`` and ``lower_teeth`` override
@@ -582,8 +584,8 @@ class ModelSession:
     ) -> Tuple[List[Any], List[Any]]:
         """Build the mesh of every identified support region.
 
-        This step does not use OpenGL or touch the session state, so the desktop
-        application runs it on a worker thread. ``progress`` is called with the
+        This step does not touch the session state, so the desktop application
+        runs it on a worker thread. ``progress`` is called with the
         number of processed regions and the total before each region and once
         at the end.
         """
