@@ -1747,11 +1747,7 @@ class GridBlockSupport(BlockSupportBase):
             segments[:, 0, None, :] * (1.0 - fractions[None, :, None])
             + segments[:, 1, None, :] * fractions[None, :, None]
         ).reshape(-1, 3)
-        inside = np.zeros(len(sample_points), dtype=bool)
-        batch_size = 50000
-        for start in range(0, len(sample_points), batch_size):
-            stop = min(start + batch_size, len(sample_points))
-            inside[start:stop] = volume.contains(sample_points[start:stop])
+        inside = utils.pointsInsideMesh(volume, sample_points)
         inside_by_segment = inside.reshape(-1, len(fractions))
         clipped_segments = []
         for segment, sample_mask in zip(segments, inside_by_segment):
@@ -1777,22 +1773,13 @@ class GridBlockSupport(BlockSupportBase):
             logging.warning('No BCC struts fit inside this support region')
             return trimesh.Trimesh()
 
-        struts = []
-        for order, (start_point, end_point) in enumerate(segments):
-            strut = trimesh.creation.cylinder(
-                radius=radius,
-                segment=np.asarray([start_point, end_point]),
-                sections=8,
-            )
-            strut.face_attributes['order'] = np.full(len(strut.faces), order, dtype=float)
-            strut.face_attributes['type'] = np.full(
-                len(strut.faces), GridMeshType.BOUNDARY, dtype=float
-            )
-            struts.append(strut)
+        lattice, face_segment = utils.cylinderSegments(segments, radius, sections=8)
+        lattice.face_attributes['order'] = face_segment.astype(float)
+        lattice.face_attributes['type'] = np.full(len(lattice.faces), GridMeshType.BOUNDARY, dtype=float)
 
         logging.info('BCC lattice generated %d strut segments from %d candidates',
-                     len(struts), len(inside_by_segment))
-        return self.concatenateMeshes(struts)
+                     len(segments), len(inside_by_segment))
+        return lattice
 
     def generateSupportBoundaryRails(self) -> trimesh.Trimesh:
         """Build thin 3D rails from the real perimeter contours of the support.
@@ -1815,13 +1802,18 @@ class GridBlockSupport(BlockSupportBase):
         side.update_faces(side_mask)
         side.remove_unreferenced_vertices()
 
-        components = side.split(only_watertight=False)
-        rail_meshes = []
-        order = 0
+        rail_segments = []
         resample_step = max(float(self._supportBorderDistance), 0.5)
-        for component in components:
-            if len(component.faces) == 0:
-                continue
+
+        # Split the side mesh into its face-connected components. This matches ``Trimesh.split`` but builds the
+        # component meshes directly, avoiding trimesh's per-submesh cache hashing, which dominates on large volumes.
+        labels = trimesh.graph.connected_component_labels(side.face_adjacency, node_count=len(side.faces))
+        faceOrder = np.argsort(labels, kind='stable')
+        groupBounds = np.flatnonzero(np.diff(labels[faceOrder])) + 1
+        for group in np.split(faceOrder, groupBounds) if len(side.faces) > 0 else []:
+            usedVerts, componentFaces = np.unique(side.faces[group], return_inverse=True)
+            component = trimesh.Trimesh(vertices=side.vertices[usedVerts],
+                                        faces=componentFaces.reshape(-1, 3), process=False)
             outline = component.outline()
             # A closed side component (e.g. a fully enclosed band) has no open boundary edges and therefore no
             # outline to follow; trimesh fails when discretising an empty path.
@@ -1834,25 +1826,19 @@ class GridBlockSupport(BlockSupportBase):
                 points = trimesh.path.traversal.resample_path(points, step=resample_step)
                 if len(points) < 2:
                     continue
-                for start_point, end_point in zip(points[:-1], points[1:]):
-                    if np.linalg.norm(end_point - start_point) <= 1e-5:
-                        continue
-                    rail = trimesh.creation.cylinder(
-                        radius=float(self._trussWidth) / 2.0,
-                        segment=np.asarray([start_point, end_point]),
-                        sections=8,
-                    )
-                    rail.face_attributes['order'] = np.full(len(rail.faces), order, dtype=float)
-                    rail.face_attributes['type'] = np.full(
-                        len(rail.faces), GridMeshType.BOUNDARY, dtype=float
-                    )
-                    rail_meshes.append(rail)
-                    order += 1
+                pairs = np.stack((points[:-1], points[1:]), axis=1)
+                lengths = np.linalg.norm(pairs[:, 1] - pairs[:, 0], axis=1)
+                rail_segments.append(pairs[lengths > 1e-5])
 
-        if not rail_meshes:
+        rail_segments = np.concatenate(rail_segments) if rail_segments else np.empty((0, 2, 3))
+        if len(rail_segments) == 0:
             return trimesh.Trimesh()
-        logging.info('External BCC border generated %d rail segments', len(rail_meshes))
-        return self.concatenateMeshes(rail_meshes)
+
+        rails, face_segment = utils.cylinderSegments(rail_segments, float(self._trussWidth) / 2.0, sections=8)
+        rails.face_attributes['order'] = face_segment.astype(float)
+        rails.face_attributes['type'] = np.full(len(rails.faces), GridMeshType.BOUNDARY, dtype=float)
+        logging.info('External BCC border generated %d rail segments', len(rail_segments))
+        return rails
 
     def section_multiplane(self, volume, plane_origin, plane_normal, heights):
 

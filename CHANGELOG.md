@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - In `pyslm.support.GridBlockSupport` added `generateSupportBoundaryRails`, which builds thin perimeter rails along the real
   support contours (spacing set by `supportBorderDistance`), handling regions with several disconnected contours.
 - Desktop app: exposed the BCC cell size, border distance and upper/lower support teeth in the support panel.
+- Added `pyslm.support.utils.pointsInsideMesh`, a vectorised vertical-ray winding test for closed meshes, and
+  `pyslm.support.utils.cylinderSegments` for building many strut cylinders in one operation.
 
 ### Fixed
 - Generate PySLM base-plate supports for overhangs whose projection does not intersect the part.
@@ -37,6 +39,13 @@ All notable changes to this project will be documented in this file.
 - Downward-facing surfaces resting on the build plate are no longer reported as support regions (they always produced an empty support volume).
 - `GridBlockSupport.generateSupportBoundaryRails` no longer fails on side components without an open outline, and no longer emits divide-by-zero warnings from trimesh normal repair.
 - Corrected the `latticeCellSize` validation message, which still referred to the honeycomb grid.
+- BCC lattice and perimeter-rail generation is 20-40x faster on large support regions (e.g. 147 s to 1.3 s for a
+  77k-face region) by replacing `trimesh.Trimesh.contains` and per-strut cylinder creation with vectorised routines;
+  this also removes the trimesh barycentric divide-by-zero warnings caused by degenerate support-volume faces.
+- Perimeter rails split the side mesh by face connectivity directly; `Trimesh.split` added a stray face to each
+  component, which hid parts of the support outline.
+- Desktop app: support geometry is built on a worker thread with per-region progress, so the window stays
+  responsive; region identification (OpenGL) still runs on the GUI thread.
 
 
 ### Changed

@@ -13,6 +13,30 @@ from .services import ModelSession, OrientationCandidate
 from .viewer import MeshView
 
 
+class _SupportGeometryWorker(QtCore.QObject):
+    """Builds support-region geometry off the GUI thread."""
+
+    progress = QtCore.pyqtSignal(int, int)
+    finished = QtCore.pyqtSignal(list, list)
+    failed = QtCore.pyqtSignal(str)
+
+    def __init__(self, regions: List[Any]) -> None:
+        super().__init__()
+        self._regions = regions
+
+    @QtCore.pyqtSlot()
+    def run(self) -> None:
+        try:
+            generated, meshes = ModelSession.build_support_geometry(
+                self._regions, self.progress.emit
+            )
+        except Exception as error:
+            logging.exception("Generazione supporti PySLM non riuscita")
+            self.failed.emit(str(error))
+            return
+        self.finished.emit(generated, meshes)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -21,6 +45,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._internal_void_mesh: Optional[Any] = None
         self._probe_blocked_mesh: Optional[Any] = None
         self.orientation_candidates: List[OrientationCandidate] = []
+        self._support_thread: Optional[QtCore.QThread] = None
+        self._support_worker: Optional["_SupportGeometryWorker"] = None
         self.setWindowTitle("PySLM | Metal AM Preparation")
         self.resize(1440, 900)
         self._build_ui()
@@ -38,6 +64,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("File")
+        self._toolbar = toolbar
         toolbar.setMovable(False)
         toolbar.addAction("Importa STL", self._choose_stl)
         toolbar.addSeparator()
@@ -597,46 +624,110 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.session.has_part:
             self._warn("Importare prima un componente STL.")
             return
+        if self._support_thread is not None:
+            return
 
         values = self.support_inputs
         support_type = self.support_type.currentData()
+        regions: List[Any] = []
 
-        def generate() -> None:
-            self.session.generate_supports(
-                support_type,
-                self.angle_input.value(),
-                values["ray"].value(),
-                values["outer_gap"].value(),
-                values["inner_gap"].value(),
-                values["simplify"].value(),
-                values["area"].value(),
-                1.0,
-                values["width"].value(),
-                values["cell_size"].value(),
-                values["border"].value(),
-                self.use_skin.isChecked(),
-                self.upper_teeth.isChecked(),
-                self.lower_teeth.isChecked(),
+        def identify() -> None:
+            # Region identification renders height maps with OpenGL, which must
+            # stay on the GUI thread; only the geometry build runs in the worker.
+            regions.extend(
+                self.session.identify_support_regions(
+                    support_type,
+                    self.angle_input.value(),
+                    values["ray"].value(),
+                    values["outer_gap"].value(),
+                    values["inner_gap"].value(),
+                    values["simplify"].value(),
+                    values["area"].value(),
+                    1.0,
+                    values["width"].value(),
+                    values["cell_size"].value(),
+                    values["border"].value(),
+                    self.use_skin.isChecked(),
+                    self.upper_teeth.isChecked(),
+                    self.lower_teeth.isChecked(),
+                )
             )
-            self._refresh_support_region_list()
-            count = len(self.session.support_regions)
-            face_count = sum(len(mesh.faces) for mesh in self.session.support_meshes)
-            support_name = (
-                "reticolo BCC 3D" if support_type == "grid_truss" else "a blocco"
-            )
-            self.support_label.setText(
-                f"{support_name}: {count} regioni · "
-                f"{len(self.session.support_meshes)} mesh · {face_count:,} facce"
-            )
-            self._refresh_viewer()
-            self._log(
-                f"PySLM ha generato {count} regioni {support_name}. "
-                "I parametri modificati richiedono una nuova generazione."
-            )
-            if count == 0:
-                self._log("Nessun supporto: verificare soglia overhang, area minima e geometria.")
 
-        self._run_action("Generazione supporti PySLM", generate)
+        if not self._run_action("Identificazione regioni di supporto", identify):
+            return
+
+        thread = QtCore.QThread(self)
+        worker = _SupportGeometryWorker(regions)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._support_build_progress)
+        worker.finished.connect(
+            lambda generated, meshes: self._support_build_finished(support_type, generated, meshes)
+        )
+        worker.failed.connect(self._support_build_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(self._support_thread_finished)
+        self._support_thread = thread
+        self._support_worker = worker
+        self._set_busy(True)
+        self.statusBar().showMessage(f"Costruzione geometria supporti: 0/{len(regions)} regioni…")
+        thread.start()
+
+    def _set_busy(self, busy: bool) -> None:
+        for widget in (self.left_panel, self.right_panel, self._toolbar):
+            widget.setEnabled(not busy)
+        if busy:
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.BusyCursor)
+        else:
+            QtWidgets.QApplication.restoreOverrideCursor()
+
+    def _support_build_progress(self, done: int, total: int) -> None:
+        if done < total:
+            self.statusBar().showMessage(
+                f"Costruzione geometria supporti: regione {done + 1} di {total}…"
+            )
+
+    def _support_build_finished(self, support_type: str, generated: list, meshes: list) -> None:
+        self.session.apply_generated_supports(generated, meshes)
+        self._refresh_support_region_list()
+        count = len(self.session.support_regions)
+        face_count = sum(len(mesh.faces) for mesh in self.session.support_meshes)
+        support_name = "reticolo BCC 3D" if support_type == "grid_truss" else "a blocco"
+        self.support_label.setText(
+            f"{support_name}: {count} regioni · "
+            f"{len(self.session.support_meshes)} mesh · {face_count:,} facce"
+        )
+        self._refresh_viewer()
+        self._log(
+            f"PySLM ha generato {count} regioni {support_name}. "
+            "I parametri modificati richiedono una nuova generazione."
+        )
+        if count == 0:
+            self._log("Nessun supporto: verificare soglia overhang, area minima e geometria.")
+        self.statusBar().showMessage("Generazione supporti PySLM: completata", 5000)
+
+    def _support_build_failed(self, message: str) -> None:
+        self.statusBar().showMessage("Generazione supporti PySLM: errore", 8000)
+        self._log(f"ERRORE — Generazione supporti PySLM: {message}")
+        self._warn(f"Generazione supporti PySLM non riuscita.\n\n{message}")
+
+    def _support_thread_finished(self) -> None:
+        self._set_busy(False)
+        if self._support_thread is not None:
+            self._support_thread.deleteLater()
+        if self._support_worker is not None:
+            self._support_worker.deleteLater()
+        self._support_thread = None
+        self._support_worker = None
+
+    def closeEvent(self, event: Any) -> None:
+        if self._support_thread is not None:
+            # The geometry build cannot be interrupted safely; wait for it so
+            # the worker thread is not destroyed while it is still running.
+            self.statusBar().showMessage("Attendere il completamento della generazione supporti…")
+            self._support_thread.wait()
+        super().closeEvent(event)
 
     def _remove_selected_support(self) -> None:
         index = self.support_region_list.currentRow()
@@ -784,18 +875,20 @@ class MainWindow(QtWidgets.QMainWindow):
             mass = volume / 1000.0 * self.density_input.value()
             self.mass_label.setText(f"Peso teorico: {mass:.3f} g")
 
-    def _run_action(self, label: str, operation: Callable[[], None]) -> None:
+    def _run_action(self, label: str, operation: Callable[[], None]) -> bool:
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self.statusBar().showMessage(f"{label}…")
         QtWidgets.QApplication.processEvents()
         try:
             operation()
             self.statusBar().showMessage(f"{label}: completata", 5000)
+            return True
         except Exception as error:
             logging.exception("%s non riuscita", label)
             self.statusBar().showMessage(f"{label}: errore", 8000)
             self._log(f"ERRORE — {label}: {error}")
             self._warn(f"{label} non riuscita.\n\n{error}")
+            return False
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 

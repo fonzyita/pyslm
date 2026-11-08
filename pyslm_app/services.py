@@ -7,7 +7,7 @@ from time import perf_counter
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, List, Literal, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -468,6 +468,35 @@ class ModelSession:
         upper_teeth: bool,
         lower_teeth: bool,
     ) -> Sequence[Any]:
+        """Identify the support regions, build their geometry and store the result."""
+        regions = self.identify_support_regions(
+            support_type, overhang_angle, ray_resolution, outer_edge_gap,
+            inner_edge_gap, simplify_factor, minimum_area, grid_spacing,
+            truss_width, lattice_cell_size, border_distance, use_skin,
+            upper_teeth, lower_teeth,
+        )
+        generated_regions, meshes = self.build_support_geometry(regions)
+        self.apply_generated_supports(generated_regions, meshes)
+        return self.support_meshes
+
+    def identify_support_regions(
+        self,
+        support_type: Literal["block", "grid_truss"],
+        overhang_angle: float,
+        ray_resolution: float,
+        outer_edge_gap: float,
+        inner_edge_gap: float,
+        simplify_factor: float,
+        minimum_area: float,
+        grid_spacing: float,
+        truss_width: float,
+        lattice_cell_size: float,
+        border_distance: float,
+        use_skin: bool,
+        upper_teeth: bool,
+        lower_teeth: bool,
+    ) -> List[Any]:
+        """Identify the support regions; uses OpenGL, so call it on the GUI thread."""
         part = self._require_part()
         from pyslm.support import geometry as support_geometry
 
@@ -501,16 +530,32 @@ class ModelSession:
 
         generation_start = perf_counter()
         regions = generator.identifySupportRegions(part, float(overhang_angle), True)
-        identification_time = perf_counter() - generation_start
         logging.info(
             "Support region identification completed in %.2fs (%d regions)",
-            identification_time,
+            perf_counter() - generation_start,
             len(regions),
         )
+        return list(regions)
+
+    @staticmethod
+    def build_support_geometry(
+        regions: Sequence[Any],
+        progress: Optional[Callable[[int, int], None]] = None,
+    ) -> Tuple[List[Any], List[Any]]:
+        """Build the mesh of every identified support region.
+
+        This step does not use OpenGL or touch the session state, so the desktop
+        application runs it on a worker thread. ``progress`` is called with the
+        number of processed regions and the total before each region and once
+        at the end.
+        """
+        build_start = perf_counter()
         generated_regions = []
         meshes = []
         skipped_empty_regions = 0
         for index, region in enumerate(regions):
+            if progress is not None:
+                progress(index, len(regions))
             support_volume = getattr(region, "supportVolume", None)
             if (
                 support_volume is None
@@ -536,22 +581,25 @@ class ModelSession:
             if mesh is not None and len(mesh.faces) > 0:
                 generated_regions.append(region)
                 meshes.append(mesh)
+        if progress is not None:
+            progress(len(regions), len(regions))
 
         if regions and not generated_regions and not skipped_empty_regions:
             raise RuntimeError(
                 "PySLM ha individuato regioni di supporto ma non ha prodotto mesh esportabili."
             )
-
-        self.support_regions = generated_regions
-        self.support_meshes = meshes
-        self._removed_supports = []
         logging.info(
-            "Support generation completed in %.2fs (%d of %d regions retained)",
-            perf_counter() - generation_start,
+            "Support geometry completed in %.2fs (%d of %d regions retained)",
+            perf_counter() - build_start,
             len(generated_regions),
             len(regions),
         )
-        return self.support_meshes
+        return generated_regions, meshes
+
+    def apply_generated_supports(self, regions: Sequence[Any], meshes: Sequence[Any]) -> None:
+        self.support_regions = list(regions)
+        self.support_meshes = list(meshes)
+        self._removed_supports = []
 
     def remove_support_region(self, index: int) -> Any:
         if index < 0 or index >= len(self.support_regions):

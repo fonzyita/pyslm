@@ -344,3 +344,188 @@ def generateHeightMap2(mesh: trimesh.Trimesh,
         heightMap[hitLocIdx[:, 0], hitLocIdx[:, 1]] = hitLoc[:, 2]
 
     return heightMap
+
+
+
+def _expandRanges(starts: np.ndarray, lengths: np.ndarray) -> np.ndarray:
+    """Concatenate ``arange(s, s + n)`` for every ``(s, n)`` pair without a Python loop."""
+    lengths = np.asarray(lengths, dtype=np.int64)
+    total = int(lengths.sum())
+    if total == 0:
+        return np.empty(0, dtype=np.int64)
+    offsets = np.cumsum(lengths) - lengths
+    return np.repeat(np.asarray(starts, dtype=np.int64) - offsets, lengths) + np.arange(total, dtype=np.int64)
+
+
+def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 4_000_000) -> np.ndarray:
+    """
+    Fast inside/outside test of points against a closed (watertight) mesh.
+
+    A vertical ray is cast upwards from every point and the signed crossings with the mesh are summed (a generalised
+    winding number along +Z). Triangles with no projected area in the XY plane - vertical walls and degenerate
+    triangles - never contribute a crossing, so they need no special handling. Candidate triangle/point pairs are
+    found with a uniform 2D bin grid and evaluated in vectorised batches, which is far quicker than
+    :meth:`trimesh.Trimesh.contains` for the many thousands of samples used when generating lattice supports.
+
+    :param mesh: A closed mesh. The result is independent of the face winding orientation.
+    :param points: The (n, 3) query points
+    :param maxPairs: Upper bound on candidate triangle/point pairs evaluated per batch, to cap memory use
+    :return: A boolean array, :code:`True` for points inside the mesh
+    """
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    inside = np.zeros(len(pts), dtype=bool)
+    if len(pts) == 0 or mesh is None or len(mesh.faces) == 0:
+        return inside
+
+    tris = np.asarray(mesh.triangles, dtype=np.float64)
+    scale = float(np.max(np.ptp(np.vstack([tris.reshape(-1, 3), pts]), axis=0))) or 1.0
+
+    # Twice the signed XY area; its sign encodes whether the face points up or down
+    det = ((tris[:, 1, 0] - tris[:, 0, 0]) * (tris[:, 2, 1] - tris[:, 0, 1])
+           - (tris[:, 2, 0] - tris[:, 0, 0]) * (tris[:, 1, 1] - tris[:, 0, 1]))
+    keep = np.abs(det) > (1e-12 * scale * scale)
+    tris, det = tris[keep], det[keep]
+    if len(tris) == 0:
+        return inside
+
+    # Offset the query columns by a tiny irrational amount so a ray never passes exactly through a shared triangle
+    # edge or vertex, where it could otherwise be counted twice or not at all.
+    q = pts[:, :2] + np.array([np.sqrt(2.0), np.sqrt(3.0)]) * (1e-7 * scale)
+
+    lo = np.minimum(q.min(axis=0), tris[:, :, :2].min(axis=(0, 1)))
+    hi = np.maximum(q.max(axis=0), tris[:, :, :2].max(axis=(0, 1)))
+    span = np.maximum(hi - lo, 1e-9)
+    nBins = int(np.clip(np.sqrt(len(pts)), 1, 1024))
+    binSize = span / nBins
+
+    pbx = np.clip(((q[:, 0] - lo[0]) / binSize[0]).astype(np.int64), 0, nBins - 1)
+    pby = np.clip(((q[:, 1] - lo[1]) / binSize[1]).astype(np.int64), 0, nBins - 1)
+    pointBin = pbx * nBins + pby
+    order = np.argsort(pointBin, kind='stable')
+    binCounts = np.bincount(pointBin, minlength=nBins * nBins)
+    binStarts = np.concatenate(([0], np.cumsum(binCounts)))
+
+    txy = tris[:, :, :2]
+    tx0 = np.clip(((txy[:, :, 0].min(axis=1) - lo[0]) / binSize[0]).astype(np.int64), 0, nBins - 1)
+    tx1 = np.clip(((txy[:, :, 0].max(axis=1) - lo[0]) / binSize[0]).astype(np.int64), 0, nBins - 1)
+    rowsPerTri = tx1 - tx0 + 1
+    winding = np.zeros(len(pts), dtype=np.int64)
+
+    # Process the triangles in chunks so that the (triangle, bin column) pairs stay bounded in memory
+    rowChunk = max(maxPairs // 4, 1)
+    rowCumulative = np.cumsum(rowsPerTri)
+    triStart = 0
+    while triStart < len(tris):
+        done = rowCumulative[triStart - 1] if triStart > 0 else 0
+        triEnd = max(int(np.searchsorted(rowCumulative, done + rowChunk, side='right')), triStart + 1)
+        chunk = np.arange(triStart, triEnd)
+        triStart = triEnd
+
+        # Each (triangle, bin column) pair covers one contiguous run of the sorted points. The Y range of the run is
+        # the exact extent of the triangle clipped to that column strip, rather than the triangle's bounding box,
+        # so long thin triangles do not test every point inside their (mostly empty) bounding box.
+        pairTri = np.repeat(chunk, rowsPerTri[chunk])
+        pairRow = _expandRanges(tx0[chunk], rowsPerTri[chunk])
+        # Widen each strip slightly so rounding in the bin assignment never drops a point on a strip boundary
+        stripLo = lo[0] + pairRow * binSize[0] - 1e-9 * scale
+        stripHi = stripLo + binSize[0] + 2e-9 * scale
+
+        yMin = np.full(len(pairTri), np.inf)
+        yMax = np.full(len(pairTri), -np.inf)
+        for i, j in ((0, 1), (1, 2), (2, 0)):
+            p0, p1 = txy[pairTri, i], txy[pairTri, j]
+            ex0 = np.maximum(np.minimum(p0[:, 0], p1[:, 0]), stripLo)
+            ex1 = np.minimum(np.maximum(p0[:, 0], p1[:, 0]), stripHi)
+            valid = ex0 <= ex1
+            dx = p1[:, 0] - p0[:, 0]
+            flat = np.abs(dx) < 1e-15
+            slope = np.where(flat, 0.0, (p1[:, 1] - p0[:, 1]) / np.where(flat, 1.0, dx))
+            ya = np.where(flat, p0[:, 1], p0[:, 1] + (ex0 - p0[:, 0]) * slope)
+            yb = np.where(flat, p1[:, 1], p0[:, 1] + (ex1 - p0[:, 0]) * slope)
+            yMin = np.where(valid, np.minimum(yMin, np.minimum(ya, yb)), yMin)
+            yMax = np.where(valid, np.maximum(yMax, np.maximum(ya, yb)), yMax)
+
+        found = np.isfinite(yMin)
+        pairTri, pairRow = pairTri[found], pairRow[found]
+        ty0 = np.clip(((yMin[found] - 1e-9 * scale - lo[1]) / binSize[1]).astype(np.int64), 0, nBins - 1)
+        ty1 = np.clip(((yMax[found] + 1e-9 * scale - lo[1]) / binSize[1]).astype(np.int64), 0, nBins - 1)
+        runStart = binStarts[pairRow * nBins + ty0]
+        runLen = binStarts[pairRow * nBins + ty1 + 1] - runStart
+
+        cumulative = np.cumsum(runLen)
+        batchStart = 0
+        while batchStart < len(runLen):
+            done = cumulative[batchStart - 1] if batchStart > 0 else 0
+            batchEnd = max(int(np.searchsorted(cumulative, done + maxPairs, side='right')), batchStart + 1)
+            sl = slice(batchStart, batchEnd)
+            batchStart = batchEnd
+
+            lengths = runLen[sl]
+            if lengths.sum() == 0:
+                continue
+            t = np.repeat(pairTri[sl], lengths)
+            p = order[_expandRanges(runStart[sl], lengths)]
+
+            a, b, c = tris[t, 0], tris[t, 1], tris[t, 2]
+            qx, qy = q[p, 0], q[p, 1]
+            w0 = (b[:, 0] - qx) * (c[:, 1] - qy) - (c[:, 0] - qx) * (b[:, 1] - qy)
+            w1 = (c[:, 0] - qx) * (a[:, 1] - qy) - (a[:, 0] - qx) * (c[:, 1] - qy)
+            w2 = (a[:, 0] - qx) * (b[:, 1] - qy) - (b[:, 0] - qx) * (a[:, 1] - qy)
+            d = det[t]
+            hit = np.where(d > 0,
+                           (w0 >= 0) & (w1 >= 0) & (w2 >= 0),
+                           (w0 <= 0) & (w1 <= 0) & (w2 <= 0))
+            if not np.any(hit):
+                continue
+            zHit = (w0[hit] * a[hit, 2] + w1[hit] * b[hit, 2] + w2[hit] * c[hit, 2]) / d[hit]
+            crossing = zHit > pts[p[hit], 2]
+            winding += np.bincount(p[hit][crossing], weights=np.sign(d[hit][crossing]),
+                                   minlength=len(pts)).astype(np.int64)
+
+    return winding != 0
+
+
+def cylinderSegments(segments: np.ndarray, radius: float, sections: int = 8) -> Tuple[trimesh.Trimesh, np.ndarray]:
+    """
+    Build capped cylinders along many line segments in a single vectorised operation. The result matches calling
+    :func:`trimesh.creation.cylinder` for every segment and concatenating the meshes, without the per-segment
+    overhead.
+
+    :param segments: The (n, 2, 3) segment end points
+    :param radius: Cylinder radius
+    :param sections: Number of sides around each cylinder
+    :return: The combined mesh and, for every face, the index of the segment it belongs to
+    """
+    segments = np.asarray(segments, dtype=np.float64).reshape(-1, 2, 3)
+    if len(segments) == 0:
+        return trimesh.Trimesh(), np.empty(0, dtype=np.int64)
+
+    template = trimesh.creation.cylinder(radius=radius, height=1.0, sections=sections)
+    tVerts = np.asarray(template.vertices, dtype=np.float64)
+    tFaces = np.asarray(template.faces, dtype=np.int64)
+
+    axis = segments[:, 1] - segments[:, 0]
+    length = np.linalg.norm(axis, axis=1)
+    direction = axis / np.maximum(length, 1e-12)[:, None]
+
+    # Rotation taking +Z onto each direction (Rodrigues); the antiparallel case is a half-turn about X
+    v = np.cross(np.broadcast_to(np.array([0.0, 0.0, 1.0]), direction.shape), direction)
+    cosA = direction[:, 2]
+    vx = np.zeros((len(direction), 3, 3))
+    vx[:, 0, 1], vx[:, 0, 2] = -v[:, 2], v[:, 1]
+    vx[:, 1, 0], vx[:, 1, 2] = v[:, 2], -v[:, 0]
+    vx[:, 2, 0], vx[:, 2, 1] = -v[:, 1], v[:, 0]
+    flipped = cosA <= -1.0 + 1e-9
+    k = 1.0 / np.where(flipped, 1.0, 1.0 + cosA)
+    rot = np.eye(3)[None] + vx + np.einsum('nij,njk->nik', vx, vx) * k[:, None, None]
+    rot[flipped] = np.diag([1.0, -1.0, -1.0])
+
+    local = np.broadcast_to(tVerts, (len(segments),) + tVerts.shape).copy()
+    local[:, :, 2] *= length[:, None]
+    midpoints = (segments[:, 0] + segments[:, 1]) / 2.0
+    verts = np.einsum('nij,nvj->nvi', rot, local) + midpoints[:, None, :]
+
+    faces = tFaces[None, :, :] + (np.arange(len(segments)) * len(tVerts))[:, None, None]
+    faceSegment = np.repeat(np.arange(len(segments)), len(tFaces))
+    mesh = trimesh.Trimesh(vertices=verts.reshape(-1, 3), faces=faces.reshape(-1, 3), process=False)
+    return mesh, faceSegment
