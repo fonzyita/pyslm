@@ -324,7 +324,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.support_region_list.setMinimumHeight(90)
         self.support_region_list.setMaximumHeight(160)
         self.support_region_list.setToolTip(
-            "Selezionare una regione per evidenziarla in arancione nel viewer."
+            "Selezionare una regione per evidenziarla in azzurro intenso nel viewer."
         )
         right_layout.addWidget(self.support_region_list)
         self.remove_support_button = QtWidgets.QPushButton(
