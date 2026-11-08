@@ -499,34 +499,64 @@ def pointsInsideMesh(mesh: trimesh.Trimesh, points: np.ndarray, maxPairs: int = 
     return winding != 0
 
 
-def verticalIntervals(mesh: trimesh.Trimesh, xy: np.ndarray,
+def verticalIntervals(mesh: trimesh.Trimesh, xy: np.ndarray, mergeGap: float = 0.0,
                       maxPairs: int = 4_000_000) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Find where vertical lines lie inside a closed (watertight) mesh.
+    Find where vertical lines lie inside a closed mesh.
 
-    :param mesh: A closed mesh
+    The inside of the mesh is found from the winding number along each line, so a mesh made of several overlapping
+    or touching closed shells is treated as their union rather than split at every internal shell boundary.
+
+    :param mesh: A closed mesh with consistently oriented faces
     :param xy: The (n, 2) line positions
+    :param mergeGap: Intervals on the same line separated by at most this distance are merged into one
     :param maxPairs: Upper bound on candidate triangle/line pairs evaluated per batch, to cap memory use
     :return: The line index of every interval and the (m, 2) ``[zLow, zHigh]`` intervals, ordered by line then height
     """
     xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
-    lines, heights = [], []
-    for p, z, _sign in _iterVerticalHits(mesh, xy, maxPairs):
+    lines, heights, signs = [], [], []
+    for p, z, sign in _iterVerticalHits(mesh, xy, maxPairs):
         lines.append(p)
         heights.append(z)
+        signs.append(sign)
     if not lines:
         return np.empty(0, dtype=np.int64), np.empty((0, 2))
 
     lines = np.concatenate(lines)
     heights = np.concatenate(heights)
+    signs = np.concatenate(signs)
     order = np.lexsort((heights, lines))
-    lines, heights = lines[order], heights[order]
+    lines, heights, signs = lines[order], heights[order], signs[order]
 
-    # Consecutive crossings along each line alternately enter and leave the closed mesh
-    rank = np.arange(len(lines)) - np.searchsorted(lines, lines, side='left')
-    entry = np.flatnonzero((rank % 2 == 0) & (np.r_[lines[1:], -1] == lines))
-    intervals = np.stack((heights[entry], heights[entry + 1]), axis=1)
-    return lines[entry], intervals
+    # Winding number just above each crossing, accumulated separately along every line. Moving upwards, a crossing
+    # through a downward-facing face (negative projected area) enters the mesh.
+    total = np.cumsum(-signs)
+    lineStart = np.searchsorted(lines, lines, side='left')
+    before = np.where(lineStart > 0, total[lineStart - 1], 0)
+    winding = total - before
+    inside = winding != 0
+    previous = np.r_[False, inside[:-1]] & np.r_[False, lines[1:] == lines[:-1]]
+
+    starts = np.flatnonzero(inside & ~previous)
+    ends = np.flatnonzero(~inside & np.r_[False, inside[:-1]] & np.r_[False, lines[1:] == lines[:-1]])
+    # Every interval that starts on a line also ends on it for a closed mesh; drop unterminated ones defensively
+    nextEnd = np.searchsorted(ends, starts, side='left')
+    valid = nextEnd < len(ends)
+    starts, nextEnd = starts[valid], nextEnd[valid]
+    valid = lines[ends[nextEnd]] == lines[starts]
+    starts, stops = starts[valid], ends[nextEnd[valid]]
+
+    intervalLines = lines[starts]
+    intervals = np.stack((heights[starts], heights[stops]), axis=1)
+
+    if mergeGap > 0 and len(intervals) > 1:
+        newGroup = np.r_[True, (intervalLines[1:] != intervalLines[:-1])
+                         | (intervals[1:, 0] - intervals[:-1, 1] > mergeGap)]
+        groupStart = np.flatnonzero(newGroup)
+        intervalLines = intervalLines[groupStart]
+        intervals = np.stack((intervals[groupStart, 0], np.maximum.reduceat(intervals[:, 1], groupStart)), axis=1)
+
+    return intervalLines, intervals
 
 
 def cylinderSegments(segments: np.ndarray, radius: float, sections: int = 8) -> Tuple[trimesh.Trimesh, np.ndarray]:

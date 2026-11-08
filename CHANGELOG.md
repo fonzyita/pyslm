@@ -16,7 +16,15 @@ All notable changes to this project will be documented in this file.
   support boundary and also supports regions narrower than one cell.
 - In `pyslm.support.GridBlockSupport` added `generateSupportBoundaryRails`, which builds thin perimeter rails along the real
   support contours. It is no longer used by `geometry()`, which uses the perimeter wall of the conformal lattice instead.
-- Added `pyslm.support.utils.verticalIntervals`, returning where vertical lines lie inside a closed mesh.
+- Added `pyslm.support.utils.verticalIntervals`, returning where vertical lines lie inside a closed mesh. It uses the
+  winding number, so support volumes made of several overlapping or touching shells are treated as their union.
+- Added `pyslm.support.WallBlockSupport`, `WallBlockSupportGenerator` and `WallSupportParameters`: block supports
+  built from thin solid walls in an X/Y grid plus a boundary wall, in the style of commercial SLM build preparation.
+  Walls follow the support volume from the build plate or part to the overhang, with trapezoidal teeth (contact length,
+  base length, base interval, height and penetration), diamond perforations, optional fragmentation and a physical
+  wall thickness; every wall is exported as a closed solid.
+- Desktop app: "Blocco a pareti (stile SLM)" support type with its parameters, and an adjustable build-plate lift
+  (default 3 mm) so the bottom surfaces of the part can be supported.
 - Desktop app: exposed the BCC cell size, border distance and upper/lower support teeth in the support panel.
 - Added `pyslm.support.utils.pointsInsideMesh`, a vectorised vertical-ray winding test for closed meshes, and
   `pyslm.support.utils.cylinderSegments` for building many strut cylinders in one operation.

@@ -467,7 +467,7 @@ class ModelSession:
 
     def generate_supports(
         self,
-        support_type: Literal["block", "grid_truss"],
+        support_type: Literal["walls", "block", "grid_truss"],
         overhang_angle: float,
         ray_resolution: float,
         outer_edge_gap: float,
@@ -481,13 +481,14 @@ class ModelSession:
         use_skin: bool,
         upper_teeth: bool,
         lower_teeth: bool,
+        wall_parameters: Optional[Any] = None,
     ) -> Sequence[Any]:
         """Identify the support regions, build their geometry and store the result."""
         regions = self.identify_support_regions(
             support_type, overhang_angle, ray_resolution, outer_edge_gap,
             inner_edge_gap, simplify_factor, minimum_area, grid_spacing,
             truss_width, lattice_cell_size, border_distance, use_skin,
-            upper_teeth, lower_teeth,
+            upper_teeth, lower_teeth, wall_parameters=wall_parameters,
         )
         generated_regions, meshes = self.build_support_geometry(regions)
         self.apply_generated_supports(generated_regions, meshes)
@@ -495,7 +496,7 @@ class ModelSession:
 
     def identify_support_regions(
         self,
-        support_type: Literal["block", "grid_truss"],
+        support_type: Literal["walls", "block", "grid_truss"],
         overhang_angle: float,
         ray_resolution: float,
         outer_edge_gap: float,
@@ -509,15 +510,38 @@ class ModelSession:
         use_skin: bool,
         upper_teeth: bool,
         lower_teeth: bool,
+        wall_parameters: Optional[Any] = None,
     ) -> List[Any]:
-        """Identify the support regions; uses OpenGL, so call it on the GUI thread."""
+        """Identify the support regions; uses OpenGL, so call it on the GUI thread.
+
+        ``wall_parameters`` (a :class:`pyslm.support.WallSupportParameters`) configures the
+        ``"walls"`` support type; ``use_skin``, ``upper_teeth`` and ``lower_teeth`` override
+        its border and teeth switches.
+        """
         part = self._require_part()
         from pyslm.support import geometry as support_geometry
 
         support_geometry._require_triangulation_backend()
-        from pyslm.support import BlockSupportGenerator, GridBlockSupportGenerator
+        from dataclasses import replace
 
-        if support_type == "block":
+        from pyslm.support import (
+            BlockSupportGenerator,
+            GridBlockSupportGenerator,
+            WallBlockSupportGenerator,
+            WallSupportParameters,
+        )
+
+        if support_type == "walls":
+            parameters = wall_parameters if wall_parameters is not None else WallSupportParameters()
+            parameters = replace(
+                parameters,
+                useBorder=bool(use_skin),
+                useUpperTeeth=bool(upper_teeth),
+                useLowerTeeth=bool(lower_teeth),
+            )
+            parameters.validate()
+            generator = WallBlockSupportGenerator(parameters)
+        elif support_type == "block":
             generator = BlockSupportGenerator()
         elif support_type == "grid_truss":
             generator = GridBlockSupportGenerator()

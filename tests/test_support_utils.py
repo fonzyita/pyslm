@@ -143,3 +143,20 @@ def test_conformal_lattice_supports_regions_thinner_than_a_cell() -> None:
     assert pieces == 1
     assert perimeter.all()
     assert len(bracing) > 0
+
+
+def test_vertical_intervals_treat_overlapping_shells_as_union() -> None:
+    # Two overlapping boxes and a third touching the top: the union is one interval from -1 to 4
+    a = trimesh.creation.box(extents=[4.0, 4.0, 2.0])
+    b = trimesh.creation.box(extents=[4.0, 4.0, 2.0])
+    b.apply_translation([0.0, 0.0, 1.0])
+    c = trimesh.creation.box(extents=[4.0, 4.0, 1.95])
+    c.apply_translation([0.0, 0.0, 3.025])
+    mesh = trimesh.util.concatenate([a, b, c])
+
+    lines, intervals = utils.verticalIntervals(mesh, np.array([[0.0, 0.0]]))
+    assert np.allclose(intervals, [[-1.0, 2.0], [2.05, 4.0]])
+
+    lines, intervals = utils.verticalIntervals(mesh, np.array([[0.0, 0.0]]), mergeGap=0.1)
+    assert lines.tolist() == [0]
+    assert np.allclose(intervals, [[-1.0, 4.0]])

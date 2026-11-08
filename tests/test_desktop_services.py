@@ -645,7 +645,7 @@ def test_cpu_height_map_ray_projection(
     os.environ.get("PYSLM_RUN_SUPPORT_INTEGRATION") != "1",
     reason="Requires PySLM support extras and an available OpenGL desktop context.",
 )
-@pytest.mark.parametrize("support_type", ["block", "grid_truss"])
+@pytest.mark.parametrize("support_type", ["walls", "block", "grid_truss"])
 def test_generate_and_export_supports(tmp_path: Path, support_type: str) -> None:
     for module in ("triangle", "mapbox_earcut", "manifold3d", "vispy"):
         pytest.importorskip(module)

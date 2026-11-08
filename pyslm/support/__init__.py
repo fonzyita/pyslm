@@ -14,6 +14,9 @@ __all__ = [
     "GridBlockSupport",
     "GridBlockSupportGenerator",
     "SupportStructure",
+    "WallBlockSupport",
+    "WallBlockSupportGenerator",
+    "WallSupportParameters",
     "approximateProjectionSupportCost",
     "approximateSupportMapByCentroid",
     "approximateSupportMomentArea",
@@ -31,6 +34,7 @@ __all__ = [
     "render",
     "support",
     "utils",
+    "wallSupport",
 ]
 
 
@@ -45,6 +49,8 @@ def __getattr__(name):
         return import_module(".gridBlockSupport", __name__)
     if name == "render":
         return import_module(".render", __name__)
+    if name == "wallSupport":
+        return import_module(".wallSupport", __name__)
     if name == "extrudeFace":
         from .geometry import extrudeFace
         return extrudeFace
@@ -73,6 +79,9 @@ def __getattr__(name):
     if name in {"GridBlockSupport", "GridBlockSupportGenerator"}:
         from . import gridBlockSupport
         return getattr(gridBlockSupport, name)
+    if name in {"WallBlockSupport", "WallBlockSupportGenerator", "WallSupportParameters"}:
+        from . import wallSupport
+        return getattr(wallSupport, name)
     if name == "projectHeightMap":
         from .render import projectHeightMap
         return projectHeightMap

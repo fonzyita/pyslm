@@ -225,11 +225,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         right_layout.addWidget(self._section_title("TIPO DI SUPPORTO"))
         self.support_type = QtWidgets.QComboBox()
+        self.support_type.addItem("Blocco a pareti (stile SLM)", "walls")
         self.support_type.addItem("Reticolo spaziale BCC", "grid_truss")
         self.support_type.addItem("Volume a blocco", "block")
         self.support_type.currentIndexChanged.connect(self._support_type_changed)
         right_layout.addWidget(self.support_type)
-        self.support_heading = self._section_title("PARAMETRI RETICOLO BCC 3D")
+        self.support_heading = self._section_title("PARAMETRI BLOCCO A PARETI")
         right_layout.addWidget(self.support_heading)
         self.support_inputs = {
             "ray": self._add_parameter(right_layout, "Risoluzione proiezione (mm)", 0.2, 0.01, 2.0, 2),
@@ -237,16 +238,54 @@ class MainWindow(QtWidgets.QMainWindow):
             "inner_gap": self._add_parameter(right_layout, "Offset interno (mm)", 0.2, 0.0, 10.0, 2),
             "simplify": self._add_parameter(right_layout, "Semplificazione contorno (mm)", 0.5, 0.0, 10.0, 2),
             "area": self._add_parameter(right_layout, "Area minima (mm²)", 1.0, 0.0, 1000.0, 2),
-            "width": self._add_parameter(right_layout, "Spessore asta (mm)", 0.4, 0.1, 20.0, 2),
-            "cell_size": self._add_parameter(right_layout, "Dimensione cella BCC (mm)", 5.0, 2.0, 20.0, 2),
-            "border": self._add_parameter(right_layout, "Passo aste perimetrali (mm)", 3.0, 0.5, 20.0, 2),
         }
+        # Parameters of the SLM-style wall supports
+        self.wall_panel = QtWidgets.QWidget()
+        wall_layout = QtWidgets.QVBoxLayout(self.wall_panel)
+        wall_layout.setContentsMargins(0, 0, 0, 0)
+        self.support_inputs.update({
+            "wall_spacing": self._add_parameter(wall_layout, "Passo pareti (mm)", 2.5, 0.5, 20.0, 2),
+            "wall_thickness": self._add_parameter(wall_layout, "Spessore parete (mm)", 0.3, 0.05, 5.0, 2),
+            "teeth_height": self._add_parameter(wall_layout, "Altezza denti (mm)", 0.8, 0.1, 5.0, 2),
+            "teeth_contact": self._add_parameter(wall_layout, "Contatto denti (mm)", 0.3, 0.05, 5.0, 2),
+            "teeth_base": self._add_parameter(wall_layout, "Base denti (mm)", 1.0, 0.1, 10.0, 2),
+            "teeth_penetration": self._add_parameter(wall_layout, "Penetrazione denti (mm)", 0.1, 0.0, 2.0, 2),
+            "perforation_size": self._add_parameter(wall_layout, "Dimensione fori (mm)", 2.0, 0.2, 20.0, 2),
+            "fragmentation": self._add_parameter(
+                wall_layout, "Frammentazione ogni (mm, 0 = no)", 0.0, 0.0, 100.0, 1
+            ),
+        })
+        self.support_inputs["wall_spacing"].setToolTip(
+            "Distanza tra le pareti della griglia in X e in Y."
+        )
+        self.support_inputs["teeth_contact"].setToolTip(
+            "Lunghezza della punta di ogni dente a contatto con il pezzo."
+        )
+        self.support_inputs["fragmentation"].setToolTip(
+            "Interrompe le pareti a questo intervallo per facilitarne la rimozione; 0 disattiva."
+        )
+        self.perforation = QtWidgets.QCheckBox("Perforazioni a rombo")
+        self.perforation.setChecked(True)
+        self.perforation.stateChanged.connect(self._support_settings_changed)
+        wall_layout.addWidget(self.perforation)
+        right_layout.addWidget(self.wall_panel)
+
+        # Parameters of the BCC lattice
+        self.lattice_panel = QtWidgets.QWidget()
+        lattice_layout = QtWidgets.QVBoxLayout(self.lattice_panel)
+        lattice_layout.setContentsMargins(0, 0, 0, 0)
+        self.support_inputs.update({
+            "width": self._add_parameter(lattice_layout, "Spessore asta (mm)", 0.4, 0.1, 20.0, 2),
+            "cell_size": self._add_parameter(lattice_layout, "Dimensione cella BCC (mm)", 5.0, 2.0, 20.0, 2),
+            "border": self._add_parameter(lattice_layout, "Passo aste perimetrali (mm)", 3.0, 0.5, 20.0, 2),
+        })
+        right_layout.addWidget(self.lattice_panel)
         self.support_inputs["outer_gap"].setToolTip(
             "Arretra ogni bordo della proiezione di questo valore per lato. "
             "Un'impronta larga meno del doppio dell'offset può scomparire; "
             "la soglia Area minima può eliminare altri frammenti."
         )
-        self.use_skin = QtWidgets.QCheckBox("Genera bordo esterno a aste")
+        self.use_skin = QtWidgets.QCheckBox("Bordo esterno")
         self.use_skin.setChecked(True)
         self.upper_teeth = QtWidgets.QCheckBox("Denti superiori")
         self.upper_teeth.setChecked(True)
@@ -255,14 +294,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for checkbox in (self.use_skin, self.upper_teeth, self.lower_teeth):
             checkbox.stateChanged.connect(self._support_settings_changed)
             right_layout.addWidget(checkbox)
-        self.grid_truss_controls = [
-            self.support_inputs["width"],
-            self.support_inputs["cell_size"],
-            self.support_inputs["border"],
-            self.use_skin,
-            self.upper_teeth,
-            self.lower_teeth,
-        ]
+        self.structure_controls = [self.use_skin, self.upper_teeth, self.lower_teeth]
 
         self.generate_button = QtWidgets.QPushButton("Genera supporti PySLM")
         self.generate_button.setObjectName("primaryButton")
@@ -656,6 +688,13 @@ class MainWindow(QtWidgets.QMainWindow):
         values = self.support_inputs
         support_type = self.support_type.currentData()
         regions: List[Any] = []
+        try:
+            wall_parameters = self._wall_parameters() if support_type == "walls" else None
+            if wall_parameters is not None:
+                wall_parameters.validate()
+        except ValueError as error:
+            self._warn(f"Parametri delle pareti non validi.\n\n{error}")
+            return
 
         def identify() -> None:
             # Region identification renders height maps with OpenGL, which must
@@ -676,6 +715,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.use_skin.isChecked(),
                     self.upper_teeth.isChecked(),
                     self.lower_teeth.isChecked(),
+                    wall_parameters=wall_parameters,
                 )
             )
 
@@ -719,7 +759,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_support_region_list()
         count = len(self.session.support_regions)
         face_count = sum(len(mesh.faces) for mesh in self.session.support_meshes)
-        support_name = "reticolo BCC 3D" if support_type == "grid_truss" else "a blocco"
+        support_name = {
+            "walls": "a pareti",
+            "grid_truss": "reticolo BCC 3D",
+        }.get(support_type, "a blocco")
         self.support_label.setText(
             f"{support_name}: {count} regioni · "
             f"{len(self.session.support_meshes)} mesh · {face_count:,} facce"
@@ -833,13 +876,37 @@ class MainWindow(QtWidgets.QMainWindow):
         self._run_action("Ripristino regione supporto", restore)
 
     def _support_type_changed(self, _index: Optional[int] = None) -> None:
-        grid_truss = self.support_type.currentData() == "grid_truss"
+        support_type = self.support_type.currentData()
         self.support_heading.setText(
-            "PARAMETRI GRID-TRUSS" if grid_truss else "PARAMETRI SUPPORTO A BLOCCO"
+            {
+                "walls": "PARAMETRI BLOCCO A PARETI",
+                "grid_truss": "PARAMETRI RETICOLO BCC 3D",
+            }.get(support_type, "PARAMETRI SUPPORTO A BLOCCO")
         )
-        for control in self.grid_truss_controls:
-            control.setEnabled(grid_truss)
+        self.wall_panel.setVisible(support_type == "walls")
+        self.lattice_panel.setVisible(support_type == "grid_truss")
+        self.use_skin.setEnabled(support_type in ("walls", "grid_truss"))
+        # Teeth are only generated by the wall supports
+        for control in (self.upper_teeth, self.lower_teeth):
+            control.setEnabled(support_type == "walls")
         self._support_settings_changed()
+
+    def _wall_parameters(self) -> Any:
+        from pyslm.support import WallSupportParameters
+
+        values = self.support_inputs
+        return WallSupportParameters(
+            hatchSpacing=values["wall_spacing"].value(),
+            wallThickness=values["wall_thickness"].value(),
+            teethHeight=values["teeth_height"].value(),
+            teethTopLength=values["teeth_contact"].value(),
+            teethBaseLength=values["teeth_base"].value(),
+            teethPenetration=values["teeth_penetration"].value(),
+            usePerforation=self.perforation.isChecked(),
+            perforationSize=values["perforation_size"].value(),
+            perforationWeb=max(0.5 * values["perforation_size"].value(), 0.3),
+            fragmentationInterval=values["fragmentation"].value(),
+        )
 
     def _export_part(self) -> None:
         self._export_with_dialog("Esporta componente orientato", self.session.export_part)

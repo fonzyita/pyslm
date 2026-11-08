@@ -49,6 +49,22 @@ or support settings clears the removed-region history. Selecting a generated
 region highlights it in the viewer; this helps inspect regions before removal
 but does not alter PySLM's generated geometry.
 
+The default support type, "Blocco a pareti (stile SLM)", follows the block
+supports of commercial SLM build-preparation software. Each support region is
+filled with thin vertical walls on an X/Y grid ("Passo pareti") plus a wall
+along the region boundary ("Bordo esterno"). Every wall runs from the build
+plate or the part up to the overhang and has a real thickness ("Spessore
+parete"), so the exported STL contains closed solids. Trapezoidal teeth touch
+the part: "Altezza denti", "Contatto denti" (tip length), "Base denti" and
+"Penetrazione denti" (how far the tips enter the part). Lower teeth are only
+used where a wall stands on the part, never on the build plate. Diamond
+perforations ("Dimensione fori") lighten the walls and can be disabled, and
+"Frammentazione ogni" splits the walls at a fixed interval (0 disables it).
+
+"Sollevamento piatto" raises the part above the build plate (default 3 mm).
+Without it, downward-facing surfaces at the bottom of the part rest on the
+plate and cannot receive supports.
+
 The BCC lattice option builds a conformal lattice of vertical pillars. Each
 pillar runs from the lower surface (build plate or part) to the overhang and is
 braced to neighbouring pillars by BCC diagonals; diagonals that would leave the

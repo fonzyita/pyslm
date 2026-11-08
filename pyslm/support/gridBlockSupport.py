@@ -1827,7 +1827,7 @@ class GridBlockSupport(BlockSupportBase):
     def _latticePillars(volume: trimesh.Trimesh, columns: np.ndarray, offsets: np.ndarray, cell: float,
                         radius: float, snap: float = 1.0 / 3.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Nodes and vertical struts of the pillars, ordered by column and then by height."""
-        lines, intervals = utils.verticalIntervals(volume, columns)
+        lines, intervals = utils.verticalIntervals(volume, columns, mergeGap=0.25)
         # Intervals shorter than the strut radius come from lines grazing the volume boundary
         valid = (intervals[:, 1] - intervals[:, 0]) >= radius
         lines, intervals = lines[valid], intervals[valid]
