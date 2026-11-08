@@ -11,6 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from .help_texts import HELP
 from .materials import CUSTOM_MATERIAL, MATERIALS
+from .themes import DEFAULT_THEME, THEMES, stylesheet
 from .services import ModelSession, OrientationCandidate
 from .viewer import MeshView
 
@@ -470,60 +471,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resizeDocks([dock], [150], QtCore.Qt.Vertical)
 
     def _apply_style(self) -> None:
-        self.setStyleSheet(
-            """
-            QMainWindow, QWidget { background: #13181f; color: #e6ebf0; }
-            QToolBar { background: #1b222b; border: 0; spacing: 8px; padding: 6px; }
-            QToolButton, QPushButton {
-                background: #28323e; color: #e6ebf0; border: 1px solid #3a4654;
-                border-radius: 5px; padding: 7px 10px;
-            }
-            QToolButton:hover, QPushButton:hover { background: #344252; }
-            QPushButton#primaryButton { background: #087f75; border-color: #12998b; font-weight: 600; }
-            QPushButton#primaryButton:hover { background: #0a9589; }
-            QFrame#sidePanel { background: #1a2129; border: 1px solid #2a3541; border-radius: 8px; }
-            QScrollArea#sideScroll { background: transparent; border: 0; }
-            QToolButton#collapseHeader {
-                background: #202933; color: #9fb0c0; border: 1px solid #2a3541; border-radius: 4px;
-                font-weight: 700; letter-spacing: 1px; text-align: left; padding: 5px 6px;
-            }
-            QToolButton#collapseHeader:hover { background: #283340; color: #e6ebf0; }
-            QToolButton#collapseHeader:checked { color: #e6ebf0; }
-            QScrollBar:vertical { background: #161c23; width: 10px; margin: 0; border: 0; }
-            QScrollBar::handle:vertical { background: #34414f; border-radius: 4px; min-height: 30px; }
-            QScrollBar::handle:vertical:hover { background: #4b6b8a; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
-            QLabel#helpBadge {
-                background: #24384c; color: #9fd0ff; border: 1px solid #3b5a78;
-                border-radius: 8px; font-size: 10px; font-weight: 700;
-            }
-            QLabel#helpBadge:hover { background: #2f5f8f; color: #ffffff; }
-            QProgressBar {
-                background: #1b222b; border: 1px solid #3a4654; border-radius: 4px;
-                color: #e6ebf0; text-align: center; height: 16px;
-            }
-            QProgressBar::chunk { background: #2f8fd8; border-radius: 3px; }
-            QToolTip {
-                background: #22303d; color: #e6ebf0; border: 1px solid #4b6b8a; padding: 6px;
-            }
-            QLabel#sectionTitle { color: #9eacba; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-            QLabel#valueLabel { color: #c6d0da; }
-            QDoubleSpinBox {
-                background: #10151b; border: 1px solid #34404c; border-radius: 4px;
-                padding: 4px; min-width: 76px;
-            }
-            QSlider::groove:horizontal { height: 4px; background: #34404c; border-radius: 2px; }
-            QSlider::handle:horizontal {
-                background: #9eacba; border: 1px solid #c6d0da;
-                width: 12px; margin: -5px 0; border-radius: 6px;
-            }
-            QPlainTextEdit { background: #10151b; border: 0; color: #aeb9c4; }
-            QDockWidget::title { background: #1a2129; padding: 6px; }
-            QCheckBox { spacing: 8px; }
-            QStatusBar { background: #1a2129; color: #aeb9c4; }
-            """
-        )
+        self.apply_theme(DEFAULT_THEME)
+
+    def apply_theme(self, name: str) -> None:
+        """Apply one of the colour themes in :mod:`pyslm_app.themes`."""
+        theme = THEMES[name]
+        self.theme = theme
+        self.setStyleSheet(stylesheet(theme))
+        self.viewer.set_theme_colors(theme.viewer, theme.grid)
 
     def _choose_stl(self) -> None:
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(

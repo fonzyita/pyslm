@@ -73,8 +73,38 @@ void main() {
 """
 
 
+class _ContextShaderProgram(gl_shaders.ShaderProgram):
+    """A pyqtgraph shader program compiled separately for every OpenGL context.
+
+    pyqtgraph compiles a program once per process and reuses its id everywhere. When Qt recreates the OpenGL context
+    of the viewer (e.g. after a style or window change) or a second viewer exists, that id is invalid in the new
+    context and the meshes fail to draw ("Error while drawing item", ``glUseProgram`` invalid operation).
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._programs: dict = {}
+
+    def program(self) -> int:
+        from OpenGL.GL import shaders as gl_compile
+
+        context = QtGui.QOpenGLContext.currentContext()
+        key = id(context)
+        if key not in self._programs:
+            try:
+                compiled = [gl_compile.compileShader(shader.code, shader.shaderType) for shader in self.shaders]
+                self._programs[key] = gl_compile.compileProgram(*compiled)
+            except Exception:
+                self._programs[key] = -1
+                raise
+            if context is not None:
+                # Forget the program when its context goes away, so a new context with a reused id recompiles
+                context.aboutToBeDestroyed.connect(lambda key=key: self._programs.pop(key, None))
+        return self._programs[key]
+
+
 def _studio_shader(name: str) -> Any:
-    return gl_shaders.ShaderProgram(
+    return _ContextShaderProgram(
         name,
         [
             gl_shaders.VertexShader(_VERTEX_SHADER_SOURCE),
@@ -108,6 +138,7 @@ class MeshView(gl.GLViewWidget):
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__(parent)
+        self._grid_color: Tuple[int, int, int, int] = (160, 164, 168, 85)
         self.setBackgroundColor((211, 213, 215))
         self.opts["distance"] = 160.0
         self._part_item: Optional[Any] = None
@@ -119,6 +150,14 @@ class MeshView(gl.GLViewWidget):
         self._scene_bounds: Optional[np.ndarray] = None
         self._section: Optional[Tuple[str, float, bool]] = None
         self._install_reference_items(100.0)
+
+    def set_theme_colors(self, background: Tuple[int, int, int], grid: Tuple[int, int, int, int]) -> None:
+        """Background of the 3D view and colour of the build-plate grid."""
+        self.setBackgroundColor(tuple(background))
+        self._grid_color = tuple(grid)
+        if self._grid_item is not None:
+            self._grid_item.setColor(self._grid_color)
+        self.update()
 
     def set_brightness(self, percent: int) -> None:
         """Set part brightness; 50% preserves the current renderer output."""
@@ -299,7 +338,7 @@ class MeshView(gl.GLViewWidget):
         self._grid_item = gl.GLGridItem()
         self._grid_item.setSize(x=grid_size, y=grid_size)
         self._grid_item.setSpacing(x=spacing, y=spacing)
-        self._grid_item.setColor((160, 164, 168, 85))
+        self._grid_item.setColor(self._grid_color)
         # Slightly below the build plate, so supports standing on it do not z-fight with the grid
         self._grid_item.translate(0.0, 0.0, -0.02 * max(model_size / 100.0, 0.1))
         self.addItem(self._grid_item)
