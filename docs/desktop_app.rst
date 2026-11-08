@@ -25,8 +25,11 @@ attempted without the triangulation backend.
 STL files do not encode physical units. The application treats input coordinates
 as millimetres. The displayed mass is an estimate based on the entered density
 (default: 7.85 g/cm³) and is shown only when PySLM can calculate a valid volume
-for the mesh. Set a density appropriate to the actual alloy before relying on
-the estimate.
+for the mesh. The material menu above the density lists common L-PBF alloys
+(aluminium, the most printed steels, titanium, nickel and cobalt alloys, copper)
+and precious metals with typical densities; choosing one sets the density,
+which can still be adjusted (the menu then shows "Personalizzato"). Set a
+density appropriate to the actual alloy before relying on the estimate.
 
 The viewer renders the part and overhangs as opaque shaded surfaces. Part
 normals are corrected on a display-only copy, leaving the geometry used for

@@ -842,3 +842,35 @@ def test_section_plane_cuts_part_and_supports(monkeypatch: pytest.MonkeyPatch) -
     assert window.viewer.section is None
     assert all(shader.uniformData["uClipEnabled"] == [0.0] for shader in shaders)
     window.close()
+
+
+def test_material_menu_sets_an_editable_density(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PyQt5")
+    pytest.importorskip("pyqtgraph")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5 import QtWidgets
+
+    from pyslm_app.main import MainWindow
+    from pyslm_app.materials import CUSTOM_MATERIAL, MATERIALS
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = MainWindow()
+    window._load_stl(str(MODEL_PATH))
+    volume = window.session.get_metrics()[1]
+    names = [window.material_input.itemText(i) for i in range(window.material_input.count())]
+
+    # Every material lists its density beside the name, plus a custom entry
+    assert len(names) == len(MATERIALS) + 1 and names[-1] == CUSTOM_MATERIAL
+    assert "Acciaio maraging 1.2709  ·  8,10 g/cm³" in names
+    assert window.density_input.value() == pytest.approx(7.85)
+
+    gold = next(i for i, name in enumerate(names) if name.startswith("Oro 24 kt"))
+    window.material_input.setCurrentIndex(gold)
+    assert window.density_input.value() == pytest.approx(19.32)
+    assert window.mass_label.text() == f"Peso teorico: {volume / 1000.0 * 19.32:.3f} g"
+
+    # Adjusting the density by hand keeps the value and marks the material as custom
+    window.density_input.setValue(19.0)
+    assert window.material_input.currentText() == CUSTOM_MATERIAL
+    assert window.density_input.value() == pytest.approx(19.0)
+    window.close()

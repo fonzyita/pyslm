@@ -62,6 +62,8 @@ All notable changes to this project will be documented in this file.
   component, which hid parts of the support outline.
 - Desktop app: support generation runs entirely on a worker thread with per-region progress, so the window stays
   responsive.
+- Desktop app: material menu for the mass estimate (AlSi10Mg, Al 6061, 316L, 17-4 PH, maraging 1.2709, H13,
+  Ti6Al4V, Inconel 718/625, CoCrMo, copper, CuCrZr, gold, silver, platinum) with an editable density.
 - Desktop app: section plane. A slider moves a cutting plane along X, Y or Z through the part and the supports;
   the cut faces are drawn filled (brick red for the part, a darker shade for supports) and update instantly on the
   GPU while dragging. Supports are now light blue (the selected region intense blue), every adjustable parameter has

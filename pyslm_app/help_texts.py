@@ -9,8 +9,10 @@ HELP = {
         "È una stima geometrica: non verifica l'uscita reale della polvere."
     ),
     "density": (
-        "Densità del materiale in g/cm³, usata solo per stimare il peso del pezzo dal suo volume. "
-        "7,85 è l'acciaio; ad esempio alluminio ≈ 2,7, titanio ≈ 4,4, Inconel ≈ 8,2."
+        "Materiale e densità in g/cm³, usati solo per stimare il peso del pezzo dal suo volume.\n"
+        "Scegliendo un materiale dal menu la densità si imposta da sola con un valore tipico del "
+        "materiale stampato; puoi comunque modificarla con le frecce o scrivendola, e il menu passa a "
+        "«Personalizzato». Le leghe reali possono variare di qualche percento."
     ),
     "orientation": (
         "Posizione del pezzo sul piatto di costruzione.\n"

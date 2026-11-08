@@ -10,6 +10,7 @@ from typing import Any, Callable, List, Optional, Tuple
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from .help_texts import HELP
+from .materials import CUSTOM_MATERIAL, MATERIALS
 from .services import ModelSession, OrientationCandidate
 from .viewer import MeshView
 
@@ -186,11 +187,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mass_label = self._value_label("Peso teorico: —")
         left_layout.addWidget(self.geometry_label)
         left_layout.addWidget(self.volume_label)
+        # Material menu: picking a material sets its typical density, which stays editable
+        self.material_input = QtWidgets.QComboBox()
+        for name, density in MATERIALS:
+            density_text = f"{density:.2f}".replace(".", ",")
+            self.material_input.addItem(f"{name}  ·  {density_text} g/cm³", density)
+        self.material_input.addItem(CUSTOM_MATERIAL, None)
+        left_layout.addWidget(self.material_input)
         density_row = QtWidgets.QHBoxLayout()
         density_row.addWidget(QtWidgets.QLabel("Densità (g/cm³)"))
-        self.density_input = self._double_input(7.85, 0.001, 30.0, 3)
+        self.density_input = self._double_input(MATERIALS[0][1], 0.001, 30.0, 3)
         self.density_input.valueChanged.connect(self._update_metrics)
-        density_row.addWidget(self._help_badge("density", self.density_input))
+        self.density_input.valueChanged.connect(self._density_edited)
+        self.material_input.currentIndexChanged.connect(self._material_selected)
+        density_row.addWidget(
+            self._help_badge("density", self.material_input, self.density_input)
+        )
         density_row.addWidget(self.density_input)
         left_layout.addLayout(density_row)
         left_layout.addWidget(self.mass_label)
@@ -1079,6 +1091,19 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_viewer_brightness(self, value: int) -> None:
         self.brightness_value_label.setText(f"{value}%")
         self.viewer.set_brightness(value)
+
+    def _material_selected(self, _index: int) -> None:
+        density = self.material_input.currentData()
+        if density is not None:
+            self.density_input.setValue(float(density))
+
+    def _density_edited(self, value: float) -> None:
+        # A density typed or changed with the arrows no longer matches the chosen material
+        density = self.material_input.currentData()
+        if density is not None and abs(float(density) - value) > 1e-9:
+            self.material_input.blockSignals(True)
+            self.material_input.setCurrentIndex(self.material_input.count() - 1)
+            self.material_input.blockSignals(False)
 
     def _update_metrics(self, _value: Optional[float] = None) -> None:
         if not self.session.has_part:
