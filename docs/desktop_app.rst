@@ -50,6 +50,17 @@ or support settings clears the removed-region history. Selecting a generated
 region highlights it in the viewer; this helps inspect regions before removal
 but does not alter PySLM's generated geometry.
 
+Every adjustable parameter has a "?" below it: hovering it explains what the
+parameter does. While supports are generated, the status bar shows the overall
+progress as a percentage.
+
+The "Sezione" controls above the 3D view cut the part and the supports with a
+plane along X, Y or Z; the slider moves the plane between the extremes of the
+scene, and "Inverti lato" hides the other half. The cut faces of closed solids
+are shown filled (brick red for the part, a darker shade for supports), so wall
+thicknesses, internal cavities and support contacts are visible. The section
+only changes the display, never the geometry or the exported files.
+
 The default support type, "Blocco a pareti (stile SLM)", follows the block
 supports of commercial SLM build-preparation software. Each support region is
 filled with thin vertical walls on an X/Y grid ("Passo pareti") plus a wall

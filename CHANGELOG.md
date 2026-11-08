@@ -62,6 +62,10 @@ All notable changes to this project will be documented in this file.
   component, which hid parts of the support outline.
 - Desktop app: support generation runs entirely on a worker thread with per-region progress, so the window stays
   responsive.
+- Desktop app: section plane. A slider moves a cutting plane along X, Y or Z through the part and the supports;
+  the cut faces are drawn filled (brick red for the part, a darker shade for supports) and update instantly on the
+  GPU while dragging. Supports are now light blue (the selected region intense blue), every adjustable parameter has
+  a "?" help badge below it, the side panels scroll, and support generation shows a percentage.
 - `pyslm.support.render.projectHeightMap` projects height maps on the CPU by default (new `useOpenGL` option for the
   previous renderer). The hidden OpenGL window used for every height map changed the current OpenGL state and made
   the desktop 3D viewer fail to draw (`GLError` "invalid operation") after support generation. The CPU projection

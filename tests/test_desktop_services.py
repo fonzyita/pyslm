@@ -791,3 +791,49 @@ def test_support_build_progress_is_monotonic_and_weighted_by_volume() -> None:
     assert second_start == pytest.approx(1.0 / 8.0)
     # Walls of the second region advance the progress inside its share
     assert len({fraction for fraction, index, _ in reports if index == 1}) >= 10
+
+
+def test_section_plane_cuts_part_and_supports(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PyQt5")
+    pytest.importorskip("pyqtgraph")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    from PyQt5 import QtWidgets
+
+    from pyslm_app import viewer as viewer_module
+    from pyslm_app.main import MainWindow
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = MainWindow()
+    window._load_stl(str(MODEL_PATH))
+    window.session.support_meshes = [trimesh.creation.box(extents=[2.0, 2.0, 3.0])]
+    window._refresh_viewer()
+    bounds = window.viewer.scene_bounds
+    shaders = (viewer_module._PART_SHADER, viewer_module._STUDIO_SHADER)
+
+    # Disabled by default: nothing is cut
+    assert window.viewer.section is None
+    assert all(shader.uniformData["uClipEnabled"] == [0.0] for shader in shaders)
+
+    window.section_check.setChecked(True)
+    window.section_axis.setCurrentIndex(window.section_axis.findData("x"))
+    window.section_slider.setValue(250)
+    axis, position, flipped = window.viewer.section
+    expected = bounds[0, 0] + 0.25 * (bounds[1, 0] - bounds[0, 0])
+    assert axis == "x" and not flipped
+    assert position == pytest.approx(expected)
+    assert window.section_label.text() == f"X = {expected:.2f} mm"
+    # Both the part and the supports are cut by the plane x - position > 0
+    for shader in shaders:
+        assert shader.uniformData["uClipEnabled"] == [1.0]
+        assert shader.uniformData["uClipPlane"] == pytest.approx([1.0, 0.0, 0.0, -expected])
+
+    window.section_flip.setChecked(True)
+    assert viewer_module._PART_SHADER.uniformData["uClipPlane"] == pytest.approx([-1.0, 0.0, 0.0, expected])
+
+    # Regenerated meshes keep the section, and turning it off restores the full view
+    window._refresh_viewer()
+    assert window.viewer.section is not None
+    window.section_check.setChecked(False)
+    assert window.viewer.section is None
+    assert all(shader.uniformData["uClipEnabled"] == [0.0] for shader in shaders)
+    window.close()

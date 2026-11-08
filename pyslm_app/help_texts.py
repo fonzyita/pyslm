@@ -25,6 +25,23 @@ HELP = {
         "supportare anche le superfici inferiori del pezzo (come fanno i software SLM, tipicamente "
         "3-5 mm). Con 0 il pezzo appoggia sul piatto e le facce inferiori non ricevono supporti."
     ),
+    "section": (
+        "Attiva il piano di sezione: taglia il pezzo e i supporti e mostra la superficie di taglio "
+        "piena e colorata (rosso mattone per il pezzo, azzurro scuro per i supporti), così si vedono "
+        "spessori, cavità interne e contatti dei supporti. Cambia solo la visualizzazione."
+    ),
+    "section_axis": (
+        "Direzione del piano di sezione. Asse Z: piano orizzontale, si scorre per strati come durante "
+        "la stampa. Assi X e Y: piani verticali, mostrano l'interno di lato."
+    ),
+    "section_position": (
+        "Sposta il piano di sezione attraverso il pezzo e i supporti, dal minimo al massimo lungo "
+        "l'asse scelto. La quota del piano è indicata a destra dello slider."
+    ),
+    "section_flip": (
+        "Sceglie quale metà nascondere: normalmente si nasconde la parte oltre il piano (sopra, per "
+        "l'asse Z); attivandolo si nasconde l'altra metà."
+    ),
     "brightness": (
         "Luminosità del modello nella vista 3D. Cambia solo la visualizzazione, non la geometria."
     ),

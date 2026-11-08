@@ -13,9 +13,12 @@ from PyQt5 import QtGui
 _VERTEX_SHADER_SOURCE = """
 varying vec3 surfaceNormal;
 varying vec3 eyePosition;
+varying vec3 worldPosition;
 void main() {
     vec4 position = gl_ModelViewMatrix * gl_Vertex;
     eyePosition = position.xyz;
+    // Mesh items are drawn without a transform, so vertex coordinates are world coordinates
+    worldPosition = gl_Vertex.xyz;
     surfaceNormal = normalize(gl_NormalMatrix * gl_Normal);
     gl_FrontColor = gl_Color;
     gl_BackColor = gl_Color;
@@ -26,8 +29,28 @@ void main() {
 _FRAGMENT_SHADER_SOURCE = """
 varying vec3 surfaceNormal;
 varying vec3 eyePosition;
+varying vec3 worldPosition;
 uniform float uBrightness;
+// Section plane a*x + b*y + c*z + d = 0; fragments on its positive side are cut away
+uniform float uClipPlane[4];
+uniform float uClipEnabled;
+// Colour of the cut faces; a fourth component below 0.5 means "darkened surface colour"
+uniform float uCapColor[4];
 void main() {
+    if (uClipEnabled > 0.5) {
+        float side = uClipPlane[0] * worldPosition.x + uClipPlane[1] * worldPosition.y
+                   + uClipPlane[2] * worldPosition.z + uClipPlane[3];
+        if (side > 0.0) discard;
+        if (!gl_FrontFacing) {
+            // Through the cut the inside (back faces) of a closed solid is visible: paint it as a flat filled
+            // section so the cut reads as a solid face
+            vec3 cap = uCapColor[3] > 0.5
+                ? vec3(uCapColor[0], uCapColor[1], uCapColor[2])
+                : gl_Color.rgb * 0.55;
+            gl_FragColor = vec4(clamp(cap * uBrightness, 0.0, 1.0), 1.0);
+            return;
+        }
+    }
     vec3 normal = normalize(surfaceNormal);
     if (!gl_FrontFacing) normal = -normal;
     vec3 viewDirection = normalize(-eyePosition);
@@ -57,12 +80,21 @@ def _studio_shader(name: str) -> Any:
             gl_shaders.VertexShader(_VERTEX_SHADER_SOURCE),
             gl_shaders.FragmentShader(_FRAGMENT_SHADER_SOURCE),
         ],
-        uniforms={"uBrightness": [1.0]},
+        uniforms={
+            "uBrightness": [1.0],
+            "uClipPlane": [0.0, 0.0, 1.0, 0.0],
+            "uClipEnabled": [0.0],
+            "uCapColor": [0.0, 0.0, 0.0, 0.0],
+        },
     )
 
 
 _STUDIO_SHADER = _studio_shader("pyslmStudioMetal")
 _PART_SHADER = _studio_shader("pyslmStudioMetalPart")
+# Cut faces: the part in brick red, supports and overlays in a darker shade of their own colour
+_PART_SHADER["uCapColor"] = [0.80, 0.30, 0.22, 1.0]
+_STUDIO_SHADER["uCapColor"] = [0.0, 0.0, 0.0, 0.0]
+_SECTION_AXES = {"x": 0, "y": 1, "z": 2}
 
 
 class MeshView(gl.GLViewWidget):
@@ -84,12 +116,46 @@ class MeshView(gl.GLViewWidget):
         self._grid_item: Optional[Any] = None
         self._axis_item: Optional[Any] = None
         self._brightness_percent = 50
+        self._scene_bounds: Optional[np.ndarray] = None
+        self._section: Optional[Tuple[str, float, bool]] = None
         self._install_reference_items(100.0)
 
     def set_brightness(self, percent: int) -> None:
         """Set part brightness; 50% preserves the current renderer output."""
         self._brightness_percent = max(0, min(100, int(percent)))
         _PART_SHADER["uBrightness"] = [self._brightness_percent / 50.0]
+        self.update()
+
+    @property
+    def scene_bounds(self) -> Optional[np.ndarray]:
+        """(2, 3) bounds of the part and supports currently shown, or ``None``."""
+        return None if self._scene_bounds is None else self._scene_bounds.copy()
+
+    @property
+    def section(self) -> Optional[Tuple[str, float, bool]]:
+        """The active section ``(axis, position, flipped)`` or ``None``."""
+        return self._section
+
+    def set_section(self, axis: str, position: float, flipped: bool = False) -> None:
+        """Cut the part and supports with a plane normal to ``axis`` at ``position`` (mm).
+
+        Everything above the plane along the axis is hidden (below when ``flipped``) and the cut faces are drawn
+        filled, updating instantly on the GPU.
+        """
+        index = _SECTION_AXES[axis.lower()]
+        normal = [0.0, 0.0, 0.0]
+        normal[index] = -1.0 if flipped else 1.0
+        plane = [*normal, -normal[index] * float(position)]
+        for shader in (_PART_SHADER, _STUDIO_SHADER):
+            shader["uClipPlane"] = plane
+            shader["uClipEnabled"] = [1.0]
+        self._section = (axis.lower(), float(position), bool(flipped))
+        self.update()
+
+    def clear_section(self) -> None:
+        for shader in (_PART_SHADER, _STUDIO_SHADER):
+            shader["uClipEnabled"] = [0.0]
+        self._section = None
         self.update()
 
     def show_meshes(
@@ -103,6 +169,7 @@ class MeshView(gl.GLViewWidget):
     ) -> None:
         self._remove_dynamic_items()
         if part is None:
+            self._scene_bounds = None
             return
 
         support_meshes = [mesh for mesh in supports if len(mesh.faces) > 0]
@@ -116,6 +183,10 @@ class MeshView(gl.GLViewWidget):
         extents = np.asarray(part.extents, dtype=float)
         size = max(float(np.max(extents)), 1.0)
         self._install_reference_items(size)
+        bounds = [np.asarray(part.bounds, dtype=float)]
+        bounds += [np.asarray(mesh.bounds, dtype=float) for mesh in support_meshes]
+        self._scene_bounds = np.array([np.min([b[0] for b in bounds], axis=0),
+                                       np.max([b[1] for b in bounds], axis=0)])
 
         # Draw supports first so the opaque part hides the intentional
         # penetration used to create reliable support contact.
@@ -229,6 +300,8 @@ class MeshView(gl.GLViewWidget):
         self._grid_item.setSize(x=grid_size, y=grid_size)
         self._grid_item.setSpacing(x=spacing, y=spacing)
         self._grid_item.setColor((160, 164, 168, 85))
+        # Slightly below the build plate, so supports standing on it do not z-fight with the grid
+        self._grid_item.translate(0.0, 0.0, -0.02 * max(model_size / 100.0, 0.1))
         self.addItem(self._grid_item)
 
         self._axis_item = gl.GLAxisItem()

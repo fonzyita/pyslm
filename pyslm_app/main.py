@@ -255,9 +255,48 @@ class MainWindow(QtWidgets.QMainWindow):
         brightness_row.addWidget(self.brightness_value_label)
         viewer_layout.addLayout(brightness_row)
         self._add_help(viewer_layout, "brightness", self.brightness_slider)
+
+        # Section plane moved through the part and supports
+        self.section_check = QtWidgets.QCheckBox("Sezione")
+        self.section_axis = QtWidgets.QComboBox()
+        for axis in ("Z", "X", "Y"):
+            self.section_axis.addItem(f"Asse {axis}", axis.lower())
+        self.section_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.section_slider.setRange(0, 1000)
+        self.section_slider.setValue(500)
+        self.section_flip = QtWidgets.QCheckBox("Inverti lato")
+        self.section_label = QtWidgets.QLabel("—")
+        self.section_label.setMinimumWidth(110)
+        # Controls on the first row, each "?" directly below its control on the second row
+        section_grid = QtWidgets.QGridLayout()
+        section_grid.setHorizontalSpacing(8)
+        section_grid.setVerticalSpacing(2)
+        section_grid.setColumnStretch(2, 1)
+        columns = (
+            (self.section_check, "section"),
+            (self.section_axis, "section_axis"),
+            (self.section_slider, "section_position"),
+            (self.section_label, None),
+            (self.section_flip, "section_flip"),
+        )
+        for column, (widget, help_key) in enumerate(columns):
+            section_grid.addWidget(widget, 0, column)
+            if help_key is None:
+                continue
+            text = HELP[help_key]
+            badge = _HelpBadge(text)
+            widget.setToolTip(_tooltip_html(text))
+            self.help_badges[help_key] = badge
+            section_grid.addWidget(badge, 1, column, QtCore.Qt.AlignLeft)
+        viewer_layout.addLayout(section_grid)
+        self.section_check.toggled.connect(self._update_section)
+        self.section_axis.currentIndexChanged.connect(self._update_section)
+        self.section_slider.valueChanged.connect(self._update_section)
+        self.section_flip.toggled.connect(self._update_section)
         self.viewer = MeshView()
         self.brightness_slider.valueChanged.connect(self._set_viewer_brightness)
         viewer_layout.addWidget(self.viewer, 1)
+        self._update_section()
 
         self.right_panel = QtWidgets.QFrame()
         self.right_panel.setObjectName("sidePanel")
@@ -1022,6 +1061,24 @@ class MainWindow(QtWidgets.QMainWindow):
             internal_voids=self._internal_void_mesh,
             probe_blocked_regions=self._probe_blocked_mesh,
         )
+        # The shown meshes (and their extent) changed: re-apply the section to them
+        self._update_section()
+
+    def _update_section(self, _value: Optional[Any] = None) -> None:
+        enabled = self.section_check.isChecked()
+        for widget in (self.section_axis, self.section_slider, self.section_flip):
+            widget.setEnabled(enabled)
+        bounds = self.viewer.scene_bounds
+        if not enabled or bounds is None:
+            self.viewer.clear_section()
+            self.section_label.setText("—")
+            return
+        axis = self.section_axis.currentData()
+        index = "xyz".index(axis)
+        low, high = float(bounds[0, index]), float(bounds[1, index])
+        position = low + (high - low) * self.section_slider.value() / self.section_slider.maximum()
+        self.viewer.set_section(axis, position, self.section_flip.isChecked())
+        self.section_label.setText(f"{axis.upper()} = {position:.2f} mm")
 
     def _set_viewer_brightness(self, value: int) -> None:
         self.brightness_value_label.setText(f"{value}%")
