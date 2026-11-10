@@ -110,8 +110,6 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.session = ModelSession()
         self._updating_orientation = False
-        self._internal_void_mesh: Optional[Any] = None
-        self._probe_blocked_mesh: Optional[Any] = None
         self.orientation_candidates: List[OrientationCandidate] = []
         self._support_thread: Optional[QtCore.QThread] = None
         self._support_worker: Optional["_SupportGeometryWorker"] = None
@@ -169,34 +167,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mesh_diagnostics_button = QtWidgets.QPushButton("Diagnostica geometria")
         self.mesh_diagnostics_button.clicked.connect(self._analyze_mesh)
         left_layout.addWidget(self.mesh_diagnostics_button)
-        self.void_pitch_input = self._double_input(1.0, 0.1, 20.0, 2)
-        self.probe_diameter_input = self._double_input(0.5, 0.1, 20.0, 2)
-        void_pitch_row = QtWidgets.QHBoxLayout()
-        void_pitch_row.addWidget(QtWidgets.QLabel("Passo voxel (mm)"))
-        # One explanation for both settings of the cavity screen
-        void_pitch_row.addWidget(
-            self._help_badge("void_screen", self.void_pitch_input, self.probe_diameter_input)
-        )
-        void_pitch_row.addWidget(self.void_pitch_input)
-        left_layout.addLayout(void_pitch_row)
-        probe_diameter_row = QtWidgets.QHBoxLayout()
-        probe_diameter_row.addWidget(QtWidgets.QLabel("Diametro sonda (mm)"))
-        probe_diameter_row.addWidget(self.probe_diameter_input)
-        left_layout.addLayout(probe_diameter_row)
-        self.void_pitch_input.valueChanged.connect(
-            self._void_screen_settings_changed
-        )
-        self.probe_diameter_input.valueChanged.connect(
-            self._void_screen_settings_changed
-        )
-        self.screen_voids_button = QtWidgets.QPushButton("Screen cavità voxel")
-        self.screen_voids_button.setToolTip(
-            "Stima a risoluzione limitata dei volumi interni non connessi "
-            "all'esterno e dei passaggi per una sonda sferica; "
-            "non verifica l'evacuazione della polvere."
-        )
-        self.screen_voids_button.clicked.connect(self._screen_internal_voids)
-        left_layout.addWidget(self.screen_voids_button)
 
         left_layout.addWidget(self._section_title("GEOMETRIA"))
         self.geometry_label = self._value_label("Dimensioni: —")
@@ -515,8 +485,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_stl(self, file_path: str) -> None:
         extents = self.session.load_stl(file_path)
-        self._internal_void_mesh = None
-        self._probe_blocked_mesh = None
         self._clear_orientation_candidates()
         self._refresh_support_region_list()
         self.geometry_diagnostics.clear()
@@ -537,8 +505,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_orientation(self, angles: List[float]) -> None:
         self.session.set_orientation(*angles)
-        self._internal_void_mesh = None
-        self._probe_blocked_mesh = None
         self._refresh_support_region_list()
         self._refresh_analysis()
         self.overhang_label.setText("Ricalcolare le superfici per l'orientamento corrente.")
@@ -699,105 +665,6 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
         self._run_action("Diagnostica geometrica", analyze)
-
-    def _screen_internal_voids(self) -> None:
-        if not self.session.has_part:
-            self._warn("Importare prima un componente STL.")
-            return
-
-        def screen() -> None:
-            result = self.session.screen_internal_voids(
-                self.void_pitch_input.value(),
-                self.probe_diameter_input.value(),
-            )
-            self._internal_void_mesh = result.visualization_mesh
-            self._probe_blocked_mesh = result.probe_blocked_visualization_mesh
-            self._refresh_viewer()
-            lines = [
-                f"Orientamento corrente X/Y/Z: "
-                f"{result.build_rotation[0]:.1f}° / "
-                f"{result.build_rotation[1]:.1f}° / "
-                f"{result.build_rotation[2]:.1f}°",
-                f"Screen voxel: passo {result.voxel_pitch:.3f} mm",
-                f"Diametro sonda sferica di prova: "
-                f"{result.probe_diameter:.3f} mm",
-                "Legenda viewer: ambra = cavità voxel; rosso = spazio-centro "
-                "sonda non connesso all'esterno.",
-                f"Griglia: {result.grid_shape[0]} x {result.grid_shape[1]} x "
-                f"{result.grid_shape[2]} ({result.sampled_voxel_count:,} campioni)",
-                "Volumi interni non connessi all'esterno nel reticolo: "
-                f"{len(result.candidates)}",
-            ]
-            for index, candidate in enumerate(result.candidates[:10], start=1):
-                lines.append(
-                    f"  Candidato {index}: circa {candidate.volume:.3f} mm³, "
-                    f"{candidate.voxel_count:,} voxel, limiti {candidate.bounds}"
-                )
-            if len(result.candidates) > 10:
-                lines.append(
-                    f"  Altri {len(result.candidates) - 10} candidati non mostrati."
-                )
-            if not result.candidates:
-                lines.append(
-                    "Nessun volume isolato rilevato a questa risoluzione; "
-                    "non prova che tutte le cavità siano accessibili."
-                )
-            lines.append(
-                "Componenti dello spazio dei centri sonda non connesse "
-                "all'esterno: "
-                f"{len(result.probe_blocked_candidates)}"
-            )
-            for index, candidate in enumerate(
-                result.probe_blocked_candidates[:10], start=1
-            ):
-                lines.append(
-                    f"  Zona non accessibile {index}: circa "
-                    f"{candidate.volume:.3f} mm³ di spazio-centro, "
-                    f"{candidate.voxel_count:,} voxel, limiti {candidate.bounds}"
-                )
-            if len(result.probe_blocked_candidates) > 10:
-                lines.append(
-                    "  Altre zone non accessibili non mostrate."
-                )
-            lines.extend(
-                [
-                    "",
-                    "Volumi indicati per le zone sonda sono spazio disponibile "
-                    "al centro della sfera, non volumi di cavità. "
-                    "Stima voxel conservativa con connettività per faccia. "
-                    "Passaggi prossimi alla risoluzione possono apparire chiusi; "
-                    "il volume della sonda è sferico e non modella particelle reali. "
-                    "Non valuta gravità, forma/dinamica della polvere, supporti "
-                    "intrappolati o evacuazione effettiva.",
-                ]
-            )
-            self.geometry_diagnostics.setPlainText("\n".join(lines))
-            self._log(
-                f"Screen cavità completato a {result.voxel_pitch:.3f} mm: "
-                f"orientamento X/Y/Z {result.build_rotation[0]:.1f}/"
-                f"{result.build_rotation[1]:.1f}/{result.build_rotation[2]:.1f}°, "
-                f"{len(result.candidates)} volumi isolati e "
-                f"{len(result.probe_blocked_candidates)} zone senza percorso "
-                f"per la sonda da {result.probe_diameter:.3f} mm. "
-                "Il risultato è una stima voxel, non una verifica di evacuabilità."
-            )
-
-        self._run_action("Screen cavità voxel", screen)
-
-    def _void_screen_settings_changed(self, _value: Optional[float] = None) -> None:
-        if self._internal_void_mesh is None and self._probe_blocked_mesh is None:
-            return
-        self._internal_void_mesh = None
-        self._probe_blocked_mesh = None
-        self._refresh_viewer()
-        self.geometry_diagnostics.setPlainText(
-            "I parametri dello screening sono cambiati. "
-            "Eseguire di nuovo lo screen cavità per aggiornare il viewer."
-        )
-        self._log(
-            "Overlay cavità rimossi: modificati passo voxel o diametro sonda. "
-            "Rieseguire lo screening per aggiornare i risultati."
-        )
 
     def _generate_supports(self) -> None:
         if not self.session.has_part:
@@ -1074,8 +941,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.session.overhang_mesh,
             self.session.support_meshes,
             self._current_support_index(),
-            internal_voids=self._internal_void_mesh,
-            probe_blocked_regions=self._probe_blocked_mesh,
         )
         # The shown meshes (and their extent) changed: re-apply the section to them
         self._update_section()

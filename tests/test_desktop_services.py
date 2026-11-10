@@ -519,37 +519,6 @@ def test_grid_support_polygon_repair_keeps_disconnected_components() -> None:
     assert all(polygon.is_valid for polygon in repaired_parts)
 
 
-def test_changing_voxel_screen_settings_clears_stale_overlay(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    pytest.importorskip("PyQt5")
-    pytest.importorskip("pyqtgraph")
-    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
-    from PyQt5 import QtWidgets
-
-    from pyslm_app.main import MainWindow
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    window = MainWindow()
-    window._load_stl(str(MODEL_PATH))
-    window._internal_void_mesh = trimesh.creation.box(extents=[1.0] * 3)
-    window._probe_blocked_mesh = trimesh.creation.box(extents=[0.5] * 3)
-    window._refresh_viewer()
-    assert window.viewer._internal_void_item is not None
-    assert window.viewer._probe_blocked_item is not None
-
-    window.void_pitch_input.setValue(0.75)
-
-    assert window._internal_void_mesh is None
-    assert window._probe_blocked_mesh is None
-    assert window.viewer._internal_void_item is None
-    assert window.viewer._probe_blocked_item is None
-    assert "Eseguire di nuovo" in window.geometry_diagnostics.toPlainText()
-
-    window.close()
-    app.processEvents()
-
-
 def test_compare_orthogonal_orientations_uses_pyslm_estimates() -> None:
     pytest.importorskip("triangle")
     pytest.importorskip("mapbox_earcut")
@@ -755,7 +724,7 @@ def test_every_adjustable_parameter_has_a_help_badge(monkeypatch: pytest.MonkeyP
         for panel in (window.left_panel, window.right_panel)
         for widget in panel.findChildren((QtWidgets.QDoubleSpinBox, QtWidgets.QCheckBox))
     ]
-    assert len(controls) >= 30
+    assert len(controls) >= 28
     assert all(widget.toolTip() for widget in controls)
 
     # Hovering a badge shows its explanation immediately

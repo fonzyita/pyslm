@@ -2,12 +2,6 @@
 
 HELP = {
     # --- Componente -------------------------------------------------------------------------------------------------
-    "void_screen": (
-        "Impostazioni dello «Screen cavità voxel», che cerca volumi chiusi dentro il pezzo.\n"
-        "• Passo voxel: dimensione dei cubetti di analisi; più piccolo trova cavità più sottili ma è più lento.\n"
-        "• Diametro sonda: sfera usata per segnalare i passaggi verso l'esterno più stretti di questo diametro.\n"
-        "È una stima geometrica: non verifica l'uscita reale della polvere."
-    ),
     "density": (
         "Materiale e densità in g/cm³, usati solo per stimare il peso del pezzo dal suo volume.\n"
         "Scegliendo un materiale dal menu la densità si imposta da sola con un valore tipico del "
