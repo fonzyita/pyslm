@@ -28,6 +28,7 @@ class Theme:
     viewer: Tuple[int, int, int]
     grid: Tuple[int, int, int, int]
     radius: int = 8
+    style: str = "classic"  # "apple": pill buttons, sentence-case titles, segmented tabs
 
 
 THEMES: Dict[str, Theme] = {
@@ -72,9 +73,37 @@ THEMES: Dict[str, Theme] = {
         primary_text="#0b1520", accent="#38bdf8", badge="#2b4a63", badge_text="#8fd8ff", log="#262d36",
         log_text="#c3cdd8", viewer=(222, 226, 231), grid=(150, 158, 168, 80), radius=10,
     ),
+    "Cupertino": Theme(
+        name="Cupertino", window="#f5f5f7", panel="#ffffff", panel_border="#e5e5ea", text="#1d1d1f",
+        muted="#86868b", input="#ffffff", input_border="#d2d2d7", button="#ffffff",
+        button_border="#d2d2d7", button_hover="#f2f2f4", primary="#0071e3", primary_hover="#0077ed",
+        primary_text="#ffffff", accent="#0071e3", badge="#eef4fd", badge_text="#0071e3", log="#ffffff",
+        log_text="#3a3a3c", viewer=(240, 240, 244), grid=(176, 176, 186, 60), radius=12, style="apple",
+    ),
+    "Cupertino Grigio": Theme(
+        name="Cupertino Grigio", window="#d9d9de", panel="#ebebef", panel_border="#cdcdd3", text="#1d1d1f",
+        muted="#6e6e73", input="#f7f7f9", input_border="#c3c3c9", button="#f7f7f9",
+        button_border="#c3c3c9", button_hover="#dedee3", primary="#0071e3", primary_hover="#0077ed",
+        primary_text="#ffffff", accent="#0071e3", badge="#dbe7f7", badge_text="#0062c4", log="#ebebef",
+        log_text="#3a3a3c", viewer=(222, 222, 227), grid=(160, 160, 170, 70), radius=12, style="apple",
+    ),
+    "Cupertino Grafite": Theme(
+        name="Cupertino Grafite", window="#3a3a3e", panel="#4a4a4f", panel_border="#5a5a60", text="#f2f2f7",
+        muted="#aeaeb2", input="#3c3c41", input_border="#68686e", button="#5a5a60",
+        button_border="#6a6a70", button_hover="#636369", primary="#0a84ff", primary_hover="#2b95ff",
+        primary_text="#ffffff", accent="#0a84ff", badge="#2c4766", badge_text="#8cc4ff", log="#404045",
+        log_text="#d1d1d6", viewer=(226, 226, 230), grid=(150, 150, 158, 80), radius=12, style="apple",
+    ),
+    "Cupertino Scuro": Theme(
+        name="Cupertino Scuro", window="#1c1c1e", panel="#2c2c2e", panel_border="#3a3a3c", text="#f5f5f7",
+        muted="#98989d", input="#1c1c1e", input_border="#48484a", button="#3a3a3c",
+        button_border="#48484a", button_hover="#444446", primary="#0a84ff", primary_hover="#2b95ff",
+        primary_text="#ffffff", accent="#0a84ff", badge="#1f3550", badge_text="#7cbcff", log="#242426",
+        log_text="#c7c7cc", viewer=(214, 214, 219), grid=(150, 150, 158, 85), radius=12, style="apple",
+    ),
 }
 
-DEFAULT_THEME = "Notte"
+DEFAULT_THEME = "Cupertino Grafite"
 
 
 def stylesheet(theme: Theme) -> str:
@@ -93,7 +122,7 @@ def stylesheet(theme: Theme) -> str:
         font-weight: 600; padding: 9px 12px; }}
     QPushButton#primaryButton:hover {{ background: {t.primary_hover}; }}
     QFrame#sidePanel {{ background: {t.panel}; border: 1px solid {t.panel_border}; border-radius: {r}px; }}
-    QFrame#sidePanel QLabel, QFrame#sidePanel QCheckBox {{ background: transparent; }}
+    QFrame#sidePanel QLabel, QFrame#sidePanel QCheckBox, QWidget#titleRow {{ background: transparent; }}
     QScrollArea#sideScroll {{ background: transparent; border: 0; }}
     QToolButton#collapseHeader {{ background: {t.button}; color: {t.muted}; border: 1px solid {t.panel_border};
         border-radius: {max(r - 4, 3)}px; font-weight: 700; letter-spacing: 1px; text-align: left;
@@ -135,4 +164,37 @@ def stylesheet(theme: Theme) -> str:
     QDockWidget::title {{ background: {t.panel}; padding: 6px; }}
     QCheckBox {{ spacing: 8px; }}
     QStatusBar {{ background: {t.panel}; color: {t.muted}; border-top: 1px solid {t.panel_border}; }}
+    """ + (_apple_overrides(t) if t.style == "apple" else "")
+
+
+def _apple_overrides(t: Theme) -> str:
+    """Extra rules for the Apple-like look, layered over the common stylesheet."""
+    return f"""
+    QToolBar {{ background: {t.window}; border: 0; padding: 8px 10px; spacing: 6px; }}
+    QToolButton {{ background: transparent; border: 0; border-radius: 14px; padding: 6px 14px;
+        color: {t.accent}; font-weight: 600; }}
+    QToolButton:hover {{ background: {t.button_hover}; }}
+    QPushButton {{ border-radius: 14px; padding: 6px 14px; }}
+    QPushButton#primaryButton {{ border-radius: 14px; padding: 8px 14px; }}
+    QFrame#sidePanel {{ border: 1px solid {t.panel_border}; border-radius: {t.radius}px; }}
+    QLabel#sectionTitle {{ color: {t.text}; font-size: 10pt; font-weight: bold; letter-spacing: 0px; }}
+    QToolButton#collapseHeader {{ background: transparent; border: 0; border-radius: 8px; color: {t.text};
+        font-size: 10pt; font-weight: bold; letter-spacing: 0px;
+        padding: 6px 4px; }}
+    QToolButton#collapseHeader:hover {{ background: {t.button_hover}; }}
+    QDoubleSpinBox, QComboBox {{ border-radius: 7px; padding: 4px 8px; }}
+    QListWidget {{ border-radius: 8px; }}
+    QSlider::groove:horizontal {{ height: 4px; background: {t.input_border}; border-radius: 2px; }}
+    QSlider::handle:horizontal {{ background: #ffffff; border: 1px solid {t.input_border}; width: 18px;
+        margin: -8px 0; border-radius: 10px; }}
+    QScrollBar:vertical {{ width: 8px; }}
+    QScrollBar::handle:vertical {{ background: {t.input_border}; border-radius: 4px; }}
+    QTabBar::tab {{ background: {t.button_hover}; color: {t.text}; padding: 4px 16px; margin: 3px 0;
+        border-radius: 0; }}
+    QTabBar::tab:first {{ border-top-left-radius: 7px; border-bottom-left-radius: 7px; }}
+    QTabBar::tab:last {{ border-top-right-radius: 7px; border-bottom-right-radius: 7px; }}
+    QTabBar::tab:selected {{ background: {t.button}; border: 1px solid {t.input_border}; font-weight: 600; }}
+    QDockWidget::title {{ background: {t.window}; color: {t.muted}; padding: 6px 10px; }}
+    QPlainTextEdit {{ border: 1px solid {t.panel_border}; border-radius: 10px; padding: 4px; }}
+    QStatusBar {{ background: {t.window}; border-top: 0; }}
     """

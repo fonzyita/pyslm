@@ -16,6 +16,22 @@ from .services import ModelSession, OrientationCandidate
 from .viewer import MeshView
 
 
+_ACRONYMS = {"BCC", "STL", "SLM", "X", "Y", "Z"}
+
+
+def _sentence_case(text: str) -> str:
+    """'PIANO DI COSTRUZIONE · Z = 0' -> 'Piano di costruzione · Z = 0' (single letters and 3D stay)."""
+    title, sep, rest = text.partition("|")
+    if sep:
+        return _sentence_case(title) + sep + rest
+    words = [w.lower() if w.isalpha() and w not in _ACRONYMS else w for w in text.split(" ")]
+    result = " ".join(words)
+    for i, ch in enumerate(result):
+        if ch.isalpha():
+            return result[:i] + ch.upper() + result[i + 1:]
+    return result
+
+
 class _HelpBadge(QtWidgets.QLabel):
     """A small "?" that shows its explanation as soon as the mouse is over it."""
 
@@ -479,6 +495,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.theme = theme
         self.setStyleSheet(stylesheet(theme))
         self.viewer.set_theme_colors(theme.viewer, theme.grid)
+        for widget in self.findChildren(QtWidgets.QWidget):
+            if widget.objectName() in ("sectionTitle", "collapseHeader"):
+                original = widget.property("titleText")
+                self._set_title_text(widget, original if original else widget.text())
+
+    def _set_title_text(self, widget: Any, text: str) -> None:
+        """Show a section title in capitals, or in sentence case for the Apple-like theme."""
+        widget.setProperty("titleText", text)
+        theme = getattr(self, "theme", None)
+        widget.setText(_sentence_case(text) if theme is not None and theme.style == "apple" else text)
 
     def _choose_stl(self) -> None:
         file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -979,11 +1005,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _support_type_changed(self, _index: Optional[int] = None) -> None:
         support_type = self.support_type.currentData()
-        self.support_heading.setText(
+        self._set_title_text(
+            self.support_heading,
             {
                 "walls": "PARAMETRI BLOCCO A PARETI",
                 "grid_truss": "PARAMETRI RETICOLO BCC 3D",
-            }.get(support_type, "PARAMETRI SUPPORTO A BLOCCO")
+            }.get(support_type, "PARAMETRI SUPPORTO A BLOCCO"),
         )
         self.wall_panel.setVisible(support_type == "walls")
         self.lattice_panel.setVisible(support_type == "grid_truss")
@@ -1196,6 +1223,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _title_with_help(self, text: str, help_key: str, *targets: QtWidgets.QWidget) -> QtWidgets.QWidget:
         """A section title with one "?" that explains the whole group."""
         container = QtWidgets.QWidget()
+        container.setObjectName("titleRow")
         row = QtWidgets.QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(6)
