@@ -1111,7 +1111,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 def main() -> int:
-    log_path = Path(__file__).resolve().parents[1] / "pyslm-support-debug.log"
+    # Packaged builds (PyInstaller) keep the log next to PySLM.exe
+    base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    log_path = base / "pyslm-support-debug.log"
     handlers: List[logging.Handler] = [
         logging.FileHandler(log_path, mode="w", encoding="utf-8")
     ]
